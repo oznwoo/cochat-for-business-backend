@@ -9,6 +9,20 @@ from app.db.session import engine
 
 _cross_encoder = None
 
+async def _is_vector_table_ready() -> bool:
+    """langchain_pg_embedding 테이블이 DB에 존재하는지 확인합니다."""
+    check = text("""
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'langchain_pg_embedding'
+        LIMIT 1
+    """)
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(check)
+            return result.fetchone() is not None
+    except Exception:
+        return False
+
 def _get_cross_encoder():
     global _cross_encoder
     if _cross_encoder is None:
@@ -70,7 +84,9 @@ async def adelete_documents_from_vector_db(ids: List[str]) -> bool:
 
 async def afetch_stale_memories_from_db(limit: int = 10) -> List[Dict[str, Any]]:
     """가장 오래된 (occurred_at 기준) realtime_summary 메모리를 가져옵니다."""
-    
+    if not await _is_vector_table_ready():
+        return []
+
     # 랭체인 PGVector의 기본 테이블 구조에 의존 (cmetadata 컬럼 사용)
     query = text("""
         SELECT id, document, cmetadata 
@@ -100,7 +116,10 @@ async def afetch_ongoing_memories_by_channel(channel_id: str) -> List[Dict[str, 
     """특정 채널 내에서 '진행 중(ongoing)'인 작업 메모리 추출"""
     if not channel_id:
         return []
-        
+
+    if not await _is_vector_table_ready():
+        return []
+
     query = text("""
         SELECT id, document, cmetadata 
         FROM langchain_pg_embedding 
@@ -172,6 +191,9 @@ def compute_rrf(dense_results: List[Dict[str, Any]], sparse_results: List[Dict[s
 
 async def asearch_hybrid_rrf(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     """하이브리드 검색 및 RRF 병합 수행 유틸리티 (실제 PostgreSQL pgvector 연결)"""
+    if not await _is_vector_table_ready():
+        return []
+
     try:
         # 공통 함수로 Vector DB 커넥션 획득
         vector_store = _get_vector_store()

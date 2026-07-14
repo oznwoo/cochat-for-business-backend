@@ -3,12 +3,6 @@ from fastapi import APIRouter
 router = APIRouter(tags=["notifications"])
 
 
-@router.post("/webhooks/slack", status_code=200)
-def slack_webhook(payload: dict = {}):
-    """Slack 웹훅 수신"""
-    return {"status": "received"}
-
-
 @router.get("/notifications")
 def list_notifications():
     """알림 목록 조회"""
