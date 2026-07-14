@@ -3,19 +3,44 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from app.api.endpoints import briefing, integrations, notifications, streams
 from app.ingress.discord_gateway import start_gateway, stop_gateway
 from app.ingress.slack_webhook import router as slack_router
 from app.core.scheduler import run_gc_scheduler
+from app.core.config import settings
+from app.db.session import AsyncSessionLocal
+from app.models.user import User
+
+
+async def _ensure_master_user() -> None:
+    """MASTER_USER_ID에 해당하는 유저가 없으면 플레이스홀더 유저를 생성합니다."""
+    if settings.MASTER_USER_ID <= 0:
+        return
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            result = await session.execute(
+                select(User).where(User.id == settings.MASTER_USER_ID)
+            )
+            if result.scalar_one_or_none() is None:
+                session.add(User(
+                    id=settings.MASTER_USER_ID,
+                    email="master@cochat.local",
+                    password_hash="",
+                    display_name="Master",
+                ))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. 디스코드 게이트웨이 백그라운드 구동
+    # 1. 마스터 유저 보장 (FK 위반 방지)
+    await _ensure_master_user()
+
+    # 2. 디스코드 게이트웨이 백그라운드 구동
     discord_task = await start_gateway()
-    
-    # 2. 벡터 DB 가비지 컬렉터 스케줄러 (태스크 스폰)
+
+    # 3. 벡터 DB 가비지 컬렉터 스케줄러 (태스크 스폰)
     gc_task = asyncio.create_task(run_gc_scheduler(interval_hours=24))
     
     yield

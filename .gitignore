@@ -14,7 +14,8 @@ venv/
 # IDE and tool specific files
 .idea/
 .vscode/
-.claude/
+.claude/*
+!.claude/rules/
 .mypy_cache/
 .pytest_cache/
 .hypothesis/
@@ -37,7 +38,6 @@ dist/
 .coverage
 .coverage.*
 htmlcov/
-.claude/
 
 # Local test scripts
 test_discord_gateway.py
