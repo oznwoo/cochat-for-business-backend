@@ -17,7 +17,7 @@
    - 연관 없으면 → 새 독립 이슈로 등록
 3. 이슈를 생성한다 (`gh issue create --repo oh0227/cochat-for-buisness-backend ...`)
 4. 이슈 번호를 확인한 뒤 코드 수정을 시작한다
-5. 커밋 메시지에 `closes #번호` 또는 `refs #번호`를 포함한다
+5. 커밋 메시지에 `closes #번호` 또는 `refs #번호`를 포함한다 (형식은 `commit-convention.md` 참고)
 
 ### Sub-issue 작성 규칙
 
@@ -39,7 +39,7 @@ parent: #2 (GC 스케줄러 시작 시 langchain_pg_embedding 테이블 미존�
 
 ### 브랜치
 
-모든 수정은 `develop` 브랜치 기준으로 작업한다.
+모든 수정은 `dev` 브랜치 기준으로 작업한다.
 
 ---
 

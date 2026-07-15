@@ -7,17 +7,19 @@
 ```
 .claude/
 └── rules/
-    └── github-issue-workflow.md  # 이슈 등록 → 코드 수정 순서 규칙
+    ├── github-issue-workflow.md  # 이슈 등록 → 코드 수정 순서 규칙
+    └── commit-convention.md      # 커밋 메시지 컨벤션
 ```
 
 ## 핵심 규칙 요약
 
 - **코드 수정 전 반드시 GitHub 이슈를 먼저 등록한다**
 - 기존 이슈와 연관된 문제는 sub-issue로 등록한다
-- 모든 작업은 `develop` 브랜치 기준으로 한다
+- 모든 작업은 `dev` 브랜치 기준으로 한다
 - 이슈 레포: `oh0227/cochat-for-buisness-backend`
+- 커밋은 Conventional Commits 형식(`<type>: <description>`)을 쓰고, footer에 `closes #번호` / `refs #번호`로 이슈를 참조한다
 
-자세한 내용은 `.claude/rules/github-issue-workflow.md` 참고.
+자세한 내용은 `.claude/rules/github-issue-workflow.md`, `.claude/rules/commit-convention.md` 참고.
 
 ## 프로젝트 개요
 
