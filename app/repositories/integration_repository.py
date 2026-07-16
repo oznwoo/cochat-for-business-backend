@@ -99,6 +99,21 @@ async def get_integration_by_account(
     return result.scalar_one_or_none()
 
 
+async def get_integration_by_slack_team_id(
+    db: AsyncSession,
+    team_id: str,
+) -> IntegrationAccount | None:
+    """slack_team_id로 활성 연동 계정 조회 (webhook에서 사용, account_identifier와 무관)."""
+    result = await db.execute(
+        select(IntegrationAccount).where(
+            IntegrationAccount.provider == "slack",
+            IntegrationAccount.slack_team_id == team_id,
+            IntegrationAccount.status == "active",
+        )
+    )
+    return result.scalars().first()
+
+
 async def get_integration_by_user_account(
     db: AsyncSession,
     user_id: int,

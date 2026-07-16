@@ -14,7 +14,7 @@ from app.integrations.slack.client import SlackClient
 from app.integrations.slack.events import SlackEventType, to_normalizer_payload
 from app.integrations.slack.normalizer import normalize_message
 from app.repositories.integration_repository import (
-    get_integration_by_account,
+    get_integration_by_slack_team_id,
     get_token_by_integration_id,
 )
 from app.repositories.raw_event_repository import save_raw_event
@@ -98,10 +98,9 @@ async def slack_webhook(request: Request):
 
     async with AsyncSessionLocal() as db:
         async with db.begin():
-            integration = await get_integration_by_account(
+            integration = await get_integration_by_slack_team_id(
                 db=db,
-                provider="slack",
-                account_identifier=team_id,
+                team_id=team_id,
             )
             if not integration:
                 logger.warning(
