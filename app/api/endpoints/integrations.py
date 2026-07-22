@@ -9,11 +9,12 @@ import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user_id
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.discord.client import DiscordRestClient
@@ -61,26 +62,6 @@ class SlackSyncAllRequest(BaseModel):
     integration_ids: list[int] | None = None
     conversation_limit: int = Field(default=100, ge=1, le=200)
     message_limit: int = Field(default=30, ge=1, le=200)
-
-
-def _require_current_user_id(
-    x_cochat_user_id: str | None = Header(default=None, alias="X-Cochat-User-Id"),
-) -> int:
-    """Temporary auth stub until real login/session middleware is wired in."""
-    if not x_cochat_user_id:
-        if settings.MASTER_USER_ID > 0:
-            return settings.MASTER_USER_ID
-        raise HTTPException(status_code=401, detail="Missing X-Cochat-User-Id header.")
-
-    try:
-        user_id = int(x_cochat_user_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid X-Cochat-User-Id header.") from exc
-
-    if user_id <= 0:
-        raise HTTPException(status_code=400, detail="Invalid X-Cochat-User-Id header.")
-
-    return user_id
 
 
 def _build_oauth_state(provider: str, app_user_id: int, secret: str) -> str:
@@ -137,7 +118,7 @@ def list_integrations():
 
 @router.get("/integrations/slack/oauth-url")
 def get_slack_oauth_url(
-    current_user_id: int = Depends(_require_current_user_id),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """Return a user-scoped Slack OAuth URL for the current application user."""
     state = _build_slack_oauth_state(current_user_id)
@@ -211,7 +192,7 @@ async def slack_oauth_callback(
 
 @router.get("/integrations/slack/connection")
 async def get_slack_connection(
-    current_user_id: int = Depends(_require_current_user_id),
+    current_user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Return the current user's Slack connection status."""
@@ -241,7 +222,7 @@ async def get_slack_connection(
 @router.delete("/integrations/slack/connection/{integration_id}")
 async def disconnect_slack_connection(
     integration_id: int,
-    current_user_id: int = Depends(_require_current_user_id),
+    current_user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Disconnect the current user's Slack integration."""
@@ -268,7 +249,7 @@ async def disconnect_slack_connection(
 async def get_slack_conversations(
     integration_id: int,
     limit: int = 100,
-    current_user_id: int = Depends(_require_current_user_id),
+    current_user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """List Slack conversations accessible to the connected user token."""
@@ -299,7 +280,7 @@ async def get_slack_conversations(
 @router.post("/integrations/slack/sync")
 async def sync_slack_conversation(
     payload: SlackSyncRequest,
-    current_user_id: int = Depends(_require_current_user_id),
+    current_user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch recent Slack messages for one conversation and store them as raw events."""
@@ -335,7 +316,7 @@ async def sync_slack_conversation(
 @router.post("/integrations/slack/sync-all")
 async def sync_all_slack_connections(
     payload: SlackSyncAllRequest,
-    current_user_id: int = Depends(_require_current_user_id),
+    current_user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """Sync recent messages across all selected Slack connections for the current user."""
@@ -400,7 +381,7 @@ async def sync_all_slack_connections(
 async def list_slack_raw_events(
     integration_ids: list[int] | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
-    current_user_id: int = Depends(_require_current_user_id),
+    current_user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     """List recent Slack raw events merged across the current user's active Slack integrations."""
@@ -452,7 +433,7 @@ async def list_slack_raw_events(
 
 @router.get("/integrations/discord/oauth-url")
 def get_discord_oauth_url(
-    current_user_id: int = Depends(_require_current_user_id),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """Return the Discord bot installation URL."""
     state = _build_oauth_state("discord", current_user_id, settings.DISCORD_CLIENT_SECRET)
