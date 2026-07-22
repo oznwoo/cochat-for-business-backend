@@ -9,13 +9,11 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.integrations.discord.events import DiscordEventType
 from app.integrations.discord.normalizer import normalize_message
-from app.pipelines.entry import run_pipeline_with_memory
+from app.pipelines.dispatch import process_event_pipeline
 from app.repositories.integration_repository import get_integration_by_account
 from app.repositories.raw_event_repository import save_raw_event
 
 logger = logging.getLogger(__name__)
-
-PIPELINE_TIMEOUT_SECONDS = 60
 
 intents = discord.Intents.default()
 intents.message_content = True  # Privileged Intent — Developer Portal에서 활성화 필수
@@ -92,21 +90,7 @@ class CoChatDiscordBot(discord.Client):
             logger.exception("Discord raw_event 저장 실패: guild_id=%s", guild_id)
             return
 
-        # raw_event 저장 트랜잭션과 분리 — 파이프라인(LLM 호출 등)이 실패해도 raw_event는 유지
-        try:
-            notification = await asyncio.wait_for(
-                run_pipeline_with_memory(event), timeout=PIPELINE_TIMEOUT_SECONDS
-            )
-        except Exception:
-            logger.exception("Discord 파이프라인 처리 실패: raw_event_id=%s", raw_event_id)
-            return
-
-        if notification is None:
-            return
-
-        async with AsyncSessionLocal() as db:
-            async with db.begin():
-                db.add(notification)
+        await process_event_pipeline(event, raw_event_id=raw_event_id)
 
 
 async def start_gateway() -> asyncio.Task:
