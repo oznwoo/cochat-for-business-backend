@@ -15,6 +15,8 @@ from app.repositories.raw_event_repository import save_raw_event
 
 logger = logging.getLogger(__name__)
 
+PIPELINE_TIMEOUT_SECONDS = 60
+
 intents = discord.Intents.default()
 intents.message_content = True  # Privileged Intent — Developer Portal에서 활성화 필수
 intents.guilds = True
@@ -58,38 +60,45 @@ class CoChatDiscordBot(discord.Client):
             # DM은 integration_account가 없으므로 현재는 스킵
             return
 
-        async with AsyncSessionLocal() as db:
-            async with db.begin():
-                integration = await get_integration_by_account(
-                    db=db,
-                    provider="discord",
-                    account_identifier=guild_id,
-                )
-                if not integration:
-                    logger.warning("guild_id=%s에 대한 IntegrationAccount가 없습니다. OAuth 연동을 먼저 완료하세요.", guild_id)
-                    return
+        try:
+            async with AsyncSessionLocal() as db:
+                async with db.begin():
+                    integration = await get_integration_by_account(
+                        db=db,
+                        provider="discord",
+                        account_identifier=guild_id,
+                    )
+                    if not integration:
+                        logger.warning("guild_id=%s에 대한 IntegrationAccount가 없습니다. OAuth 연동을 먼저 완료하세요.", guild_id)
+                        return
 
-                raw_event = await save_raw_event(
-                    db=db,
-                    integration_id=integration.id,
-                    provider="discord",
-                    provider_event_id=payload["id"],
-                    event_type=DiscordEventType.MESSAGE_CREATE,
-                    payload=payload,
-                )
+                    raw_event = await save_raw_event(
+                        db=db,
+                        integration_id=integration.id,
+                        provider="discord",
+                        provider_event_id=payload["id"],
+                        event_type=DiscordEventType.MESSAGE_CREATE,
+                        payload=payload,
+                    )
+                    raw_event_id = raw_event.id
 
-                event = normalize_message(
-                    payload=payload,
-                    integration_id=integration.id,
-                    raw_event_id=raw_event.id,
-                )
-                logger.info("NotificationEvent 생성: provider=%s integration_id=%s raw_event_id=%s", event.provider, event.integration_id, event.raw_event_id)
+                    event = normalize_message(
+                        payload=payload,
+                        integration_id=integration.id,
+                        raw_event_id=raw_event_id,
+                    )
+                    logger.info("NotificationEvent 생성: provider=%s integration_id=%s raw_event_id=%s", event.provider, event.integration_id, event.raw_event_id)
+        except Exception:
+            logger.exception("Discord raw_event 저장 실패: guild_id=%s", guild_id)
+            return
 
         # raw_event 저장 트랜잭션과 분리 — 파이프라인(LLM 호출 등)이 실패해도 raw_event는 유지
         try:
-            notification = await run_pipeline_with_memory(event)
+            notification = await asyncio.wait_for(
+                run_pipeline_with_memory(event), timeout=PIPELINE_TIMEOUT_SECONDS
+            )
         except Exception:
-            logger.exception("Discord 파이프라인 처리 실패: raw_event_id=%s", raw_event.id)
+            logger.exception("Discord 파이프라인 처리 실패: raw_event_id=%s", raw_event_id)
             return
 
         if notification is None:
