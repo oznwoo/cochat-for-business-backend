@@ -6,6 +6,7 @@ from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from app.core.config import settings
 from app.pipelines.state import MessageState
 from app.pipelines.shared.retriever_utils import asearch_hybrid_rrf, search_cross_encoder_rerank
 
@@ -35,7 +36,7 @@ async def analyze_message(state: MessageState) -> dict:
     """1차 긴급도 및 저장 가치 판단 (Gemini Flash 사용)"""
     
     # 1. 모델과 파서 초기화 (실제 실행을 위해선 GOOGLE_API_KEY 환경변수 세팅 필수)
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model=settings.GEMINI_MODEL_NAME, temperature=0)
     structured_llm = llm.with_structured_output(AnalyzeMessageOutput)
     
     # 2. 시스템 프롬프트 설계
@@ -84,7 +85,7 @@ async def fast_retrieve_emergency_context(state: MessageState) -> dict:
 
 async def reassess_importance(state: MessageState) -> dict:
     """RAG 문맥 바탕 2차 검증 로직 (통합 노드)"""
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model=settings.GEMINI_MODEL_NAME, temperature=0)
     structured_llm = llm.with_structured_output(ReassessOutput)
     
     prompt = ChatPromptTemplate.from_messages([
@@ -185,7 +186,7 @@ async def store_vector_db(state: MessageState) -> dict:
         if ongoing_mems:
             mem_str = "\n".join([f"- [ID: {m['id']}] {m['content']}" for m in ongoing_mems])
             
-            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+            llm = ChatGoogleGenerativeAI(model=settings.GEMINI_MODEL_NAME, temperature=0)
             structured_llm = llm.with_structured_output(IssueMatchOutput)
             prompt = ChatPromptTemplate.from_template(
                 "당신은 이슈 해결 추적 시스템입니다. 방금 들어온 [새로운 메시지 요약]이 현재 같은 채널에서 진행 중인 [과거 이슈 목록] 중 어떤 것의 후속 대화인지 심사하세요.\n"

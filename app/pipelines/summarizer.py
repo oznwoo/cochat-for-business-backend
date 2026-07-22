@@ -46,7 +46,7 @@ async def generate_briefing(notifications: list[Notification]) -> str:
 
     response = await asyncio.to_thread(
         client.models.generate_content,
-        model="gemini-2.5-flash",
+        model=settings.GEMINI_MODEL_NAME,
         contents=prompt,
     )
 

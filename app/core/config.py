@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # Google
     GOOGLE_API_KEY: str = ""
+    GEMINI_MODEL_NAME: str = "gemini-3.6-flash"
 
     # Slack
     SLACK_BOT_TOKEN: str = ""
