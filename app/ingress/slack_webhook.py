@@ -6,13 +6,14 @@ import json
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.integrations.slack.client import SlackClient
 from app.integrations.slack.events import SlackEventType, to_normalizer_payload
 from app.integrations.slack.normalizer import normalize_message
+from app.pipelines.dispatch import process_event_pipeline
 from app.repositories.integration_repository import (
     get_integration_by_slack_team_id,
     get_token_by_integration_id,
@@ -67,7 +68,7 @@ async def _load_metadata_names(
 
 
 @router.post("/webhooks/slack")
-async def slack_webhook(request: Request):
+async def slack_webhook(request: Request, background_tasks: BackgroundTasks):
     """Receive Slack Events API payloads and persist raw events."""
     body = await _verify_slack_signature(request)
 
@@ -118,6 +119,8 @@ async def slack_webhook(request: Request):
                 event_type=event_type_raw,
                 payload=event,
             )
+            integration_id = integration.id
+            raw_event_id = raw_event.id
 
         access_token = token.access_token if token else None
 
@@ -129,8 +132,8 @@ async def slack_webhook(request: Request):
 
     notification_event = normalize_message(
         payload=to_normalizer_payload(payload),
-        integration_id=integration.id,
-        raw_event_id=raw_event.id,
+        integration_id=integration_id,
+        raw_event_id=raw_event_id,
         channel_name=channel_name,
         sender_name=sender_name,
     )
@@ -141,6 +144,13 @@ async def slack_webhook(request: Request):
         notification_event.integration_id,
         notification_event.raw_event_id,
         notification_event.source_type,
+    )
+
+    # Slack Events API는 3초 안에 ack해야 하므로 파이프라인(LLM 호출 등)은
+    # 백그라운드로 넘기고 즉시 응답한다 — 안 그러면 타임아웃 시 Slack이 같은
+    # 이벤트를 재전송해 중복 처리를 유발할 수 있다.
+    background_tasks.add_task(
+        process_event_pipeline, notification_event, raw_event_id=raw_event_id
     )
 
     return {"ok": True}
