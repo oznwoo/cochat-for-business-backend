@@ -9,7 +9,7 @@ from app.core.redis_manager import (
     acquire_message_lock, mark_message_as_processed
 )
 
-async def run_pipeline_with_memory(event: NotificationEvent) -> Notification:
+async def run_pipeline_with_memory(event: NotificationEvent) -> Notification | None:
     """
     웹훅으로부터 발생한 NotificationEvent를 받아 
     단기기억(Redis) 컨텍스트를 주입한 뒤 LangGraph 파이프라인을 구동하고,
