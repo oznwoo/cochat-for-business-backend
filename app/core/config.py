@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     DISCORD_APPLICATION_ID: str = ""
     DISCORD_CLIENT_ID: str = ""
     DISCORD_CLIENT_SECRET: str = ""
-    DISCORD_REDIRECT_URI: str = "http://cochat-prod-alb-1787981967.ap-northeast-2.elb.amazonaws.com/api/v1/integrations/discord/callback"
+    DISCORD_REDIRECT_URI: str = "https://cochat-for-buisness-backend.onrender.com/api/v1/integrations/discord/callback"
 
     # Google
     GOOGLE_API_KEY: str = ""
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     SLACK_SIGNING_SECRET: str = ""
     SLACK_CLIENT_ID: str = ""
     SLACK_CLIENT_SECRET: str = ""
-    SLACK_REDIRECT_URI: str = "http://cochat-prod-alb-1787981967.ap-northeast-2.elb.amazonaws.com/api/v1/integrations/slack/callback"
+    SLACK_REDIRECT_URI: str = "https://cochat-for-buisness-backend.onrender.com/api/v1/integrations/slack/callback"
 
     class Config:
         env_file = ".env"
