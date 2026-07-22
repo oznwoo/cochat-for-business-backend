@@ -47,6 +47,10 @@ def _get_vector_store() -> PGVector:
         collection_name="message_guidelines",
         connection=engine,
         use_jsonb=True,
+        # asyncpg는 prepared statement에 다중 SQL 커맨드를 허용하지 않아
+        # PGVector의 기본 CREATE EXTENSION 단계가 실패함. vector extension은
+        # 이미 DB에 설치되어 있으므로 이 단계를 건너뜀.
+        create_extension=False,
     )
 
 async def astore_document_to_vector_db(content: str, metadata: dict = None) -> bool:
