@@ -2,6 +2,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.notification import Notification
 from app.models.feedback_report import FeedbackReport
@@ -59,7 +60,7 @@ async def run_feedback_pipeline_with_db(event: FeedbackSubmitEvent) -> Optional[
             report_type="priority_correction",
             expected_priority=event.user_corrected_urgency,
             comment=event.feedback_reason,
-            model_version="gemini-2.5-flash-pipeline"
+            model_version=f"{settings.GEMINI_MODEL_NAME}-pipeline"
         )
         
         # 참고용으로 추출된 가이드라인을 코멘트에 덧붙여서 디버깅 용이하게 만듦

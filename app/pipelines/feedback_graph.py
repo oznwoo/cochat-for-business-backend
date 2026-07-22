@@ -5,6 +5,7 @@ from typing import Literal, List
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
+from app.core.config import settings
 from app.pipelines.state import FeedbackState
 from app.pipelines.shared.retriever_utils import asearch_hybrid_rrf, adelete_documents_from_vector_db, astore_document_to_vector_db
 
@@ -31,7 +32,7 @@ async def extract_correction_guideline(state: FeedbackState) -> dict:
         "이 오분류 경험을 바탕으로, 앞으로 비슷한 패턴의 메시지를 만났을 때 모델이 참조해야 할 "
         "일반화된 판단 기준(가이드라인)을 아주 간결하고 명확하게 한 줄로 명령조로 작성하세요."
     )
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model=settings.GEMINI_MODEL_NAME, temperature=0)
     structured_llm = llm.with_structured_output(GuidelineOutput)
     
     response = await (prompt | structured_llm).ainvoke({
@@ -63,7 +64,7 @@ async def validate_guideline_consistency(state: FeedbackState) -> dict:
         "방침이 완전히 상충(정반대 분류 명령)하는 내용이 있다면 'Conflict'로 취급하고 해당 항목의 ID를 배열에 넣으세요.\n"
         "내용이 비슷하여 둘 다 있어도 무방하거나 상호 보완적이라면 'Valid'를 반환하세요."
     )
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model=settings.GEMINI_MODEL_NAME, temperature=0)
     structured_llm = llm.with_structured_output(ValidationOutput)
     
     response = await (prompt | structured_llm).ainvoke({

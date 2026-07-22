@@ -6,6 +6,7 @@ from typing import Literal, List
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from app.core.config import settings
 from app.pipelines.state import MemoryGCState
 from app.pipelines.shared.retriever_utils import afetch_stale_memories_from_db, adelete_documents_from_vector_db
 
@@ -53,7 +54,7 @@ async def evaluate_memory_relevance(state: MemoryGCState) -> dict:
         ("user", "### 평가 대상 메모리 목록:\n{memories_str}")
     ])
     
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+    llm = ChatGoogleGenerativeAI(model=settings.GEMINI_MODEL_NAME, temperature=0.1)
     structured_llm = llm.with_structured_output(EvaluatorOutput)
     
     try:
