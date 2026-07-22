@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.integrations.discord.events import DiscordEventType
 from app.integrations.discord.normalizer import normalize_message
+from app.pipelines.entry import run_pipeline_with_memory
 from app.repositories.integration_repository import get_integration_by_account
 from app.repositories.raw_event_repository import save_raw_event
 
@@ -84,8 +85,19 @@ class CoChatDiscordBot(discord.Client):
                 )
                 logger.info("NotificationEvent 생성: provider=%s integration_id=%s raw_event_id=%s", event.provider, event.integration_id, event.raw_event_id)
 
-                # TODO: AI 파이프라인 연결 시 활성화
-                # await process_notification(event)
+        # raw_event 저장 트랜잭션과 분리 — 파이프라인(LLM 호출 등)이 실패해도 raw_event는 유지
+        try:
+            notification = await run_pipeline_with_memory(event)
+        except Exception:
+            logger.exception("Discord 파이프라인 처리 실패: raw_event_id=%s", raw_event.id)
+            return
+
+        if notification is None:
+            return
+
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                db.add(notification)
 
 
 async def start_gateway() -> asyncio.Task:
