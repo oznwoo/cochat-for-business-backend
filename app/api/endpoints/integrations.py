@@ -51,6 +51,17 @@ _SLACK_USER_SCOPES = ",".join([
     "users:read",
 ])
 
+# Event Subscriptions에 등록된 봇 이벤트(app_mention, message.channels,
+# message.groups, message.im)를 실제로 수신하려면 봇 유저에게 이 스코프가
+# 부여되어 있어야 한다. user_scope만 요청하면 봇은 아무 권한도 못 받아
+# Slack이 이벤트를 아예 안 보낸다 (#26).
+_SLACK_BOT_SCOPES = ",".join([
+    "app_mentions:read",
+    "channels:history",
+    "groups:history",
+    "im:history",
+])
+
 
 class SlackSyncRequest(BaseModel):
     integration_id: int = Field(gt=0)
@@ -124,6 +135,7 @@ def get_slack_oauth_url(
     state = _build_slack_oauth_state(current_user_id)
     params = urlencode({
         "client_id": settings.SLACK_CLIENT_ID,
+        "scope": _SLACK_BOT_SCOPES,
         "user_scope": _SLACK_USER_SCOPES,
         "redirect_uri": settings.SLACK_REDIRECT_URI,
         "state": state,
