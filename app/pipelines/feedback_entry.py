@@ -50,7 +50,6 @@ async def run_feedback_pipeline_with_db(event: FeedbackSubmitEvent) -> Optional[
         }
 
         # 3. LangGraph 파이프라인(feedback_graph) 실행 (실제 룰 추출 및 검증 처리)
-        # Checkpointer(MemorySaver) 요구에 맞추어 thread_id 등 config 주입
         config = {"configurable": {"thread_id": f"feedback_{notification_db.provider_object_id}"}}
         pipeline_output = await run_feedback_pipeline(initial_state, config=config)
 

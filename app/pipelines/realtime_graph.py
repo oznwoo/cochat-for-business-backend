@@ -1,5 +1,4 @@
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -271,13 +270,12 @@ realtime_builder.add_conditional_edges(
 realtime_builder.add_edge("store_vector_db", END)
 
 # ==============================================================================
-# Graph Compilation with Checkpointer
+# Graph Compilation
 # ==============================================================================
-
-# 로컬 테스트 및 디버깅용 MemorySaver 적용 (Time Travel, 스냅샷 기록 지원)
-# 실제 프로덕션(Postgres 연결 시)에서는 AsyncPostgresSaver 객체를 인자로 넘겨 컴파일해야 합니다.
-memory_saver_realtime = MemorySaver()
-realtime_graph = realtime_builder.compile(checkpointer=memory_saver_realtime)
+# 체크포인터 없이 컴파일. MemorySaver는 메시지마다 고유한 thread_id로 체크포인트를
+# 만료 없이 프로세스 메모리에 영구 보관해 메모리 누수를 일으켰고(#25), time-travel/resume 등
+# 체크포인트 기능을 실제로 소비하는 코드가 없어 필요하지도 않았다.
+realtime_graph = realtime_builder.compile()
 
 
 # ==============================================================================

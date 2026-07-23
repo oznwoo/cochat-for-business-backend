@@ -1,5 +1,4 @@
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from pydantic import BaseModel, Field
 from typing import Literal, List
@@ -93,11 +92,12 @@ gc_builder.add_edge("evaluate_memory_relevance", "update_or_delete_vector_db")
 gc_builder.add_edge("update_or_delete_vector_db", END)
 
 # ==============================================================================
-# Graph Compilation with Checkpointer
+# Graph Compilation
 # ==============================================================================
-
-memory_saver_gc = MemorySaver()
-memory_gc_graph = gc_builder.compile(checkpointer=memory_saver_gc)
+# 체크포인터 없이 컴파일. MemorySaver는 체크포인트를 만료 없이 프로세스 메모리에
+# 영구 보관해 메모리 누수를 일으켰고(#25), time-travel/resume 등 체크포인트 기능을
+# 실제로 소비하는 코드가 없어 필요하지도 않았다.
+memory_gc_graph = gc_builder.compile()
 
 # ==============================================================================
 # External API Wrappers

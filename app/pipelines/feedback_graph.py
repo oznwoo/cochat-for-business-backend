@@ -1,5 +1,4 @@
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel, Field
 from typing import Literal, List
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -138,11 +137,12 @@ feedback_builder.add_edge("store_feedback_guideline", END)
 feedback_builder.add_edge("override_conflicting_guideline", "store_feedback_guideline")
 
 # ==============================================================================
-# Graph Compilation with Checkpointer
+# Graph Compilation
 # ==============================================================================
-
-memory_saver_feedback = MemorySaver()
-feedback_graph = feedback_builder.compile(checkpointer=memory_saver_feedback)
+# 체크포인터 없이 컴파일. MemorySaver는 thread_id별 체크포인트를 만료 없이
+# 프로세스 메모리에 영구 보관해 메모리 누수를 일으켰고(#25), time-travel/resume 등
+# 체크포인트 기능을 실제로 소비하는 코드가 없어 필요하지도 않았다.
+feedback_graph = feedback_builder.compile()
 
 # ==============================================================================
 # External API Wrappers
