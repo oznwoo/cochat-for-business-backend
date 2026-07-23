@@ -20,6 +20,8 @@ router = APIRouter(tags=["notifications"])
 def _serialize_notification(n) -> dict:
     return {
         "id": n.id,
+        "integration_id": n.integration_id,
+        "provider": n.integration.provider if n.integration else None,
         "title": n.title,
         "sender_name": n.sender_name,
         "channel_name": n.channel_name,

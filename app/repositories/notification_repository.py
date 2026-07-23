@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.integration_account import IntegrationAccount
 from app.models.notification import Notification
@@ -21,7 +22,7 @@ async def list_notifications_for_user(
     status: str | None = None,
 ) -> tuple[list[Notification], int]:
     """유저의 알림 목록을 최신순으로 조회. (알림 목록, 전체 개수) 튜플 반환."""
-    query = select(Notification)
+    query = select(Notification).options(selectinload(Notification.integration))
     query = _scoped_to_user(query, user_id)
     if status:
         query = query.where(Notification.status == status)
@@ -45,7 +46,10 @@ async def get_notification_by_id_for_user(
 ) -> Notification | None:
     """유저 소유의 알림만 조회 (다른 유저의 알림 접근 차단)."""
     query = _scoped_to_user(
-        select(Notification).where(Notification.id == notification_id), user_id
+        select(Notification)
+        .options(selectinload(Notification.integration))
+        .where(Notification.id == notification_id),
+        user_id,
     )
     result = await db.execute(query)
     return result.scalar_one_or_none()
