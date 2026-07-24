@@ -3,11 +3,8 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
 from langchain_postgres.vectorstores import PGVector
 from sqlalchemy import text
-import os
 
 from app.db.session import engine
-
-_cross_encoder = None
 
 async def _is_vector_table_ready() -> bool:
     """langchain_pg_embedding 테이블이 DB에 존재하는지 확인합니다."""
@@ -24,19 +21,11 @@ async def _is_vector_table_ready() -> bool:
         return False
 
 def _get_cross_encoder():
-    global _cross_encoder
-    if _cross_encoder is None:
-        try:
-            from sentence_transformers import CrossEncoder
-            # 한국어에 특화된 로컬 Reranker 모델 로드 (최초 1회 다운로드 빌드됨)
-            if not os.getenv("HF_TOKEN"):
-                print("💡 에러: HF_TOKEN 환경변수가 설정되지 않았습니다!")
-                print("💡 .env 파일에 키를 넣거나 터미널에서 export 해주세요.")
-            _cross_encoder = CrossEncoder('Dongjin-kr/ko-reranker')
-        except ImportError:
-            print("⚠️ sentence-transformers가 설치되지 않았습니다. 컨테이너를 재빌드해주세요.")
-            return None
-    return _cross_encoder
+    # 로컬 torch 기반 리랭커가 Render 인스턴스 메모리 한도를 초과시켜 임시 비활성화.
+    # 가이드라인 문서가 쌓여 재랭킹이 실제로 유의미해지면 별도 서비스로 분리해
+    # 재활성화할 것 (#29). 호출부(search_cross_encoder_rerank)는 None일 때
+    # RRF 순위 그대로 사용하도록 이미 폴백 처리되어 있음.
+    return None
 
 def _get_vector_store() -> PGVector:
     """공용 PGVector 인스턴스 반환 함수"""
