@@ -19,19 +19,23 @@ class AnalyzeMessageOutput(BaseModel):
         description="초기 긴급도 파악 결과. 심각한 장애는 Emergency, 직접 멘션/중요 요청은 High, 일반 알림이나 로그는 Normal, 의미없는 잡담/대답은 Low."
     )
     judgment_rationale: str = Field(description="선택한 긴급도에 대한 상세한 논리적 판단 근거 (Chain of Thought)")
-    should_store: bool = Field(description="의미 있는 업무 컨텍스트 혹은 중요 로그로써 추후 Vector DB에 기억할 가치가 있는가?")
-    storable_summary: str = Field(description="should_store가 True인 경우 검색용 필수 핵심 요약. False인 경우 빈 문자열.")
+    # Groq(Llama) function_calling은 tool 인자를 서버 단에서 엄격히 타입 검증하는데,
+    # 모델이 bool 값을 문자열("True")로 내려주면 그 자리에서 400으로 거부되어 버린다
+    # (#31). bool 대신 문자열 스키마로 선언해 모델이 자연스럽게 내는 형식을 그대로
+    # 받아들이고, 소비하는 쪽(analyze_message 반환부)에서 bool로 변환한다.
+    should_store: Literal["true", "false"] = Field(description="의미 있는 업무 컨텍스트 혹은 중요 로그로써 추후 Vector DB에 기억할 가치가 있는가? true 또는 false 문자열로 응답.")
+    storable_summary: str = Field(description="should_store가 true인 경우 검색용 필수 핵심 요약. false인 경우 빈 문자열.")
     issue_type: Literal["new_issue", "ongoing_update", "resolved", "independent"] = Field(
         description="이 메시지의 맥락 유형. (새 장애발생=new_issue, 기존 장애 진행=ongoing_update, 장애 해결/조치완료=resolved, 단발성/독립적 정보=independent)"
     )
 
     @field_validator("should_store", mode="before")
     @classmethod
-    def _coerce_should_store(cls, v):
-        # Groq(Llama) tool-calling이 bool을 "True"/"False" 문자열로 내려주는 경우가 있어 보정
+    def _normalize_should_store(cls, v):
+        # 모델이 "True"/"False"처럼 대소문자를 섞어 내려주는 경우 Literal 매칭을 위해 정규화
         if isinstance(v, str):
-            return v.strip().lower() == "true"
-        return v
+            return v.strip().lower()
+        return "true" if v else "false"
 
 class ReassessOutput(BaseModel):
     final_urgency: Literal["Emergency", "High", "Normal", "Low"] = Field(
@@ -44,11 +48,10 @@ async def analyze_message(state: MessageState) -> dict:
     
     # 1. 모델과 파서 초기화 (실제 실행을 위해선 GOOGLE_API_KEY 환경변수 세팅 필수)
     llm = get_chat_llm(temperature=0)
-    # Groq(Llama) function_calling(기본값)은 서버 단에서 bool 타입을 엄격히
-    # 검증하는데, 모델이 "True"(문자열)로 내려주면 그 자리에서 400으로 거부되어
-    # should_store의 field_validator가 실행될 기회조차 없다 (#31 재발).
-    # json_mode는 클라이언트(Pydantic) 쪽에서 검증하므로 validator가 정상 적용됨.
-    structured_llm = llm.with_structured_output(AnalyzeMessageOutput, method="json_mode")
+    # json_mode는 스키마(필드명)를 프롬프트에 강제하지 않아 모델이 엉뚱한 키를
+    # 반환해 파싱이 실패했다 (#31 재발). function_calling(기본값)이 스키마를
+    # 정확히 전달하므로 되돌리고, 타입 문제는 스키마 쪽(should_store)에서 해결함.
+    structured_llm = llm.with_structured_output(AnalyzeMessageOutput)
 
     # 2. 시스템 프롬프트 설계
     prompt = ChatPromptTemplate.from_messages([
@@ -81,7 +84,7 @@ async def analyze_message(state: MessageState) -> dict:
         "initial_urgency": result.initial_urgency,
         "final_urgency": result.initial_urgency,
         "judgment_rationale": result.judgment_rationale,
-        "should_store": result.should_store,
+        "should_store": result.should_store == "true",
         "storable_summary": result.storable_summary,
         "issue_type": result.issue_type
     }
