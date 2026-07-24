@@ -44,8 +44,12 @@ async def analyze_message(state: MessageState) -> dict:
     
     # 1. 모델과 파서 초기화 (실제 실행을 위해선 GOOGLE_API_KEY 환경변수 세팅 필수)
     llm = get_chat_llm(temperature=0)
-    structured_llm = llm.with_structured_output(AnalyzeMessageOutput)
-    
+    # Groq(Llama) function_calling(기본값)은 서버 단에서 bool 타입을 엄격히
+    # 검증하는데, 모델이 "True"(문자열)로 내려주면 그 자리에서 400으로 거부되어
+    # should_store의 field_validator가 실행될 기회조차 없다 (#31 재발).
+    # json_mode는 클라이언트(Pydantic) 쪽에서 검증하므로 validator가 정상 적용됨.
+    structured_llm = llm.with_structured_output(AnalyzeMessageOutput, method="json_mode")
+
     # 2. 시스템 프롬프트 설계
     prompt = ChatPromptTemplate.from_messages([
         ("system", "당신은 업무용 메신저(Slack/Discord) 환경의 초고속 알람 필터링 비서입니다.\n\n"
