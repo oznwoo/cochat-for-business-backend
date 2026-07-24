@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
 from app.pipelines.shared.llm import get_chat_llm
@@ -24,6 +24,14 @@ class AnalyzeMessageOutput(BaseModel):
     issue_type: Literal["new_issue", "ongoing_update", "resolved", "independent"] = Field(
         description="이 메시지의 맥락 유형. (새 장애발생=new_issue, 기존 장애 진행=ongoing_update, 장애 해결/조치완료=resolved, 단발성/독립적 정보=independent)"
     )
+
+    @field_validator("should_store", mode="before")
+    @classmethod
+    def _coerce_should_store(cls, v):
+        # Groq(Llama) tool-calling이 bool을 "True"/"False" 문자열로 내려주는 경우가 있어 보정
+        if isinstance(v, str):
+            return v.strip().lower() == "true"
+        return v
 
 class ReassessOutput(BaseModel):
     final_urgency: Literal["Emergency", "High", "Normal", "Low"] = Field(
