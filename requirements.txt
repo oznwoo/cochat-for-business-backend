@@ -10,6 +10,7 @@ langgraph
 langchain
 langchain-anthropic
 langchain-google-genai
+langchain-groq
 google-genai
 langchain-postgres
 

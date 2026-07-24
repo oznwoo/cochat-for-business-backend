@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # Google
     GOOGLE_API_KEY: str = ""
     GEMINI_MODEL_NAME: str = "gemini-3.6-flash"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL_NAME: str = "llama-3.3-70b-versatile"
 
     # Slack
     SLACK_BOT_TOKEN: str = ""

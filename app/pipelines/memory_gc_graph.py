@@ -3,7 +3,7 @@ from langgraph.graph import StateGraph, END
 from pydantic import BaseModel, Field
 from typing import Literal, List
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
+from app.pipelines.shared.llm import get_chat_llm
 
 from app.core.config import settings
 from app.pipelines.state import MemoryGCState
@@ -53,7 +53,7 @@ async def evaluate_memory_relevance(state: MemoryGCState) -> dict:
         ("user", "### 평가 대상 메모리 목록:\n{memories_str}")
     ])
     
-    llm = ChatGoogleGenerativeAI(model=settings.GEMINI_MODEL_NAME, temperature=0.1)
+    llm = get_chat_llm(temperature=0.1)
     structured_llm = llm.with_structured_output(EvaluatorOutput)
     
     try:
