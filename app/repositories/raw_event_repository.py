@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import datetime, timezone
+
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -37,6 +39,25 @@ async def save_raw_event(
     db.add(raw_event)
     await db.flush()
     return raw_event
+
+
+async def mark_raw_event_status(
+    db: AsyncSession,
+    raw_event_id: int,
+    status: str,
+    error_message: str | None = None,
+) -> None:
+    """raw_event 처리 결과(completed/failed)를 기록한다 (#13)."""
+    await db.execute(
+        update(RawEvent)
+        .where(RawEvent.id == raw_event_id)
+        .values(
+            status=status,
+            error_message=error_message,
+            processed_at=datetime.now(timezone.utc),
+        )
+    )
+    await db.commit()
 
 
 async def list_raw_events_by_integration_ids(
