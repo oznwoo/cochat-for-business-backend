@@ -71,46 +71,40 @@ def normalize_message(
 ) -> NotificationEvent:
     """전처리된 Discord payload → NotificationEvent.
 
-    payload 구조:
+    payload 구조 (app.ingress.discord_gateway.on_message가 실제로 만드는 평평한 구조):
     {
-        "message_id": str,
+        "id": str,                     # discord message id
         "content": str,
         "timestamp": str,              # ISO8601
         "author": {
-            "user_id": str,
+            "id": str,
             "username": str,
             "global_name": str | None,
         },
-        "location": {
-            "guild_id": str | None,    # None이면 DM
-            "channel_id": str,
-            "channel_name": str | None,
-        },
-        "metadata": {
-            "attachments": list,
-            "mentions": list[str],     # user id 목록
-            "mention_everyone": bool,
-        }
+        "channel_id": str,
+        "channel_name": str | None,
+        "guild_id": str | None,        # None이면 DM
+        "attachments": list[str],      # URL 목록
+        "mentions": list[str],         # user id 목록
+        "mention_everyone": bool,
     }
     """
     author: dict = payload.get("author") or {}
-    location: dict = payload.get("location") or {}
-    metadata: dict = payload.get("metadata") or {}
 
-    sender_id: str | None = author.get("user_id")
+    sender_id: str | None = author.get("id")
     sender_name: str | None = author.get("global_name") or author.get("username")
 
-    guild_id: str | None = location.get("guild_id")
-    channel_name: str | None = location.get("channel_name")
-    channel_id: str | None = location.get("channel_id")
-    message_id: str = payload.get("message_id", "")
+    guild_id: str | None = payload.get("guild_id")
+    channel_name: str | None = payload.get("channel_name")
+    channel_id: str | None = payload.get("channel_id")
+    message_id: str = payload.get("id", "")
 
     is_dm = guild_id is None
-    mentions: list = metadata.get("mentions", [])
+    mentions: list = payload.get("mentions", [])
     has_mentions = len(mentions) > 0
-    mention_everyone: bool = metadata.get("mention_everyone", False)
+    mention_everyone: bool = payload.get("mention_everyone", False)
 
-    attachments: list = metadata.get("attachments", [])
+    attachments: list = payload.get("attachments", [])
     has_attachments = len(attachments) > 0
 
     raw_text: str = payload.get("content") or ""
