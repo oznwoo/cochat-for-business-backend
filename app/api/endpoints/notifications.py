@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.repositories.notification_repository import (
     get_notification_by_id_for_user,
     list_notifications_for_user,
+    serialize_notification,
     update_notification_status,
 )
 
@@ -18,24 +19,7 @@ router = APIRouter(tags=["notifications"])
 
 
 def _serialize_notification(n) -> dict:
-    return {
-        "id": n.id,
-        "integration_id": n.integration_id,
-        "provider": n.integration.provider if n.integration else None,
-        "title": n.title,
-        "sender_name": n.sender_name,
-        "channel_name": n.channel_name,
-        "source_type": n.source_type,
-        "priority": n.priority,
-        "original_text": n.original_text,
-        "summary": n.summary,
-        "reason": n.reason,
-        "occurred_at": n.occurred_at,
-        "source_url": n.source_url,
-        "is_direct_target": n.is_direct_target,
-        "status": n.status,
-        "created_at": n.created_at,
-    }
+    return serialize_notification(n, provider=n.integration.provider if n.integration else None)
 
 
 @router.get("/notifications")

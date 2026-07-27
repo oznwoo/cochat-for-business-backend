@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.core.redis_manager import publish_notification
 from app.db.session import AsyncSessionLocal
 from app.integrations.normalizer import NotificationEvent
+from app.models.integration_account import IntegrationAccount
 from app.pipelines.entry import run_pipeline_with_memory
+from app.repositories.notification_repository import serialize_notification
 from app.repositories.raw_event_repository import mark_raw_event_status
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,21 @@ async def process_event_pipeline(event: NotificationEvent, *, raw_event_id: int)
         return
 
     await _mark_status(raw_event_id, "completed")
+
+    # SSE 실시간 발행은 부가 기능 — 실패해도 이미 완료된 저장 결과(raw_event status)에
+    # 영향을 주지 않도록 별도 try/except로 분리.
+    try:
+        async with AsyncSessionLocal() as db:
+            integration = await db.get(IntegrationAccount, notification.integration_id)
+        if integration is not None:
+            payload = serialize_notification(notification, provider=integration.provider)
+            await publish_notification(integration.user_id, payload)
+    except Exception:
+        logger.exception(
+            "실시간 알림 발행 실패 (SSE): notification_id=%s integration_id=%s",
+            notification.id,
+            notification.integration_id,
+        )
 
 
 async def _mark_status(raw_event_id: int, status: str, error_message: str | None = None) -> None:

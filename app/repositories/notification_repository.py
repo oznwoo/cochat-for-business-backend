@@ -14,6 +14,27 @@ def _scoped_to_user(query, user_id: int):
     ).where(IntegrationAccount.user_id == user_id)
 
 
+def serialize_notification(n: Notification, *, provider: str | None) -> dict:
+    return {
+        "id": n.id,
+        "integration_id": n.integration_id,
+        "provider": provider,
+        "title": n.title,
+        "sender_name": n.sender_name,
+        "channel_name": n.channel_name,
+        "source_type": n.source_type,
+        "priority": n.priority,
+        "original_text": n.original_text,
+        "summary": n.summary,
+        "reason": n.reason,
+        "occurred_at": n.occurred_at.isoformat() if n.occurred_at else None,
+        "source_url": n.source_url,
+        "is_direct_target": n.is_direct_target,
+        "status": n.status,
+        "created_at": n.created_at.isoformat() if n.created_at else None,
+    }
+
+
 async def list_notifications_for_user(
     db: AsyncSession,
     user_id: int,

@@ -1,3 +1,4 @@
+import json
 import redis.asyncio as redis
 from typing import List
 from sqlalchemy import select
@@ -15,6 +16,15 @@ def get_redis_client():
     if _redis_client is None:
         _redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
     return _redis_client
+
+def notification_channel(user_id: int) -> str:
+    """유저별 실시간 알림 SSE pub/sub 채널 키."""
+    return f"notifications:user:{user_id}"
+
+async def publish_notification(user_id: int, payload: dict) -> None:
+    """새 알림을 유저 채널에 발행해 SSE 구독자에게 실시간 전달합니다."""
+    client = get_redis_client()
+    await client.publish(notification_channel(user_id), json.dumps(payload))
 
 async def acquire_message_lock(message_id: str, timeout_seconds: int = 60) -> bool:
     """
