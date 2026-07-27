@@ -169,7 +169,7 @@ async def slack_oauth_callback(
         raise HTTPException(status_code=400, detail="Slack authorization code exchange failed.") from exc
 
     authed_user: dict = token_data.get("authed_user", {})
-    access_token: str = authed_user.get("access_token") or token_data.get("access_token", "")
+    access_token: str = token_data.get("access_token") or authed_user.get("access_token", "")
     slack_user_id: str = authed_user.get("id", "")
     team: dict = token_data.get("team", {})
     team_id: str = team.get("id", "")
