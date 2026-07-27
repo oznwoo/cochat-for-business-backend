@@ -147,6 +147,31 @@ async def list_integrations(
     }
 
 
+@router.delete("/integrations/{integration_id}")
+async def disconnect_integration(
+    integration_id: int,
+    current_user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Disconnect the current user's integration, regardless of provider."""
+    async with db.begin():
+        integration = await disconnect_integration_for_user(
+            db=db,
+            user_id=current_user_id,
+            integration_id=integration_id,
+        )
+
+    if not integration:
+        raise HTTPException(status_code=404, detail="Integration not found for current user.")
+
+    return {
+        "status": "ok",
+        "user_id": current_user_id,
+        "integration_id": integration.id,
+        "disconnected": True,
+    }
+
+
 @router.get("/integrations/slack/oauth-url")
 def get_slack_oauth_url(
     current_user_id: int = Depends(get_current_user_id),
