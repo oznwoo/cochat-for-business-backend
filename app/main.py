@@ -67,8 +67,10 @@ app.add_middleware(
 
 app.include_router(integrations.router, prefix="/api/v1")
 app.include_router(slack_router, prefix="/api/v1")
-app.include_router(notifications.router, prefix="/api/v1")
+# streams는 리터럴 경로(/notifications/stream)를 선언하므로, notifications의
+# 파라미터 경로(/notifications/{notification_id})보다 먼저 등록해야 매칭이 가로채이지 않는다 (#35).
 app.include_router(streams.router, prefix="/api/v1")
+app.include_router(notifications.router, prefix="/api/v1")
 app.include_router(briefing.router, prefix="/api/v1")
 
 
