@@ -123,8 +123,28 @@ def _parse_slack_oauth_state(state: str) -> dict:
 
 
 @router.get("/integrations")
-def list_integrations():
-    return {"integrations": []}
+async def list_integrations(
+    current_user_id: int = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return every active integration owned by the current user, across all providers."""
+    integrations = await list_integrations_by_user(
+        db=db,
+        user_id=current_user_id,
+        status="active",
+    )
+    return {
+        "integrations": [
+            {
+                "provider": integration.provider,
+                "integration_id": integration.id,
+                "account_identifier": integration.account_identifier,
+                "account_name": integration.account_name,
+                "status": integration.status,
+            }
+            for integration in integrations
+        ],
+    }
 
 
 @router.get("/integrations/slack/oauth-url")
