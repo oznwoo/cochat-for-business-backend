@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,14 +38,30 @@ async def get_focus_session(db: AsyncSession, session_id: int) -> FocusSession |
 
 
 async def get_active_session(db: AsyncSession, user_id: int) -> FocusSession | None:
-    """유저의 현재 진행 중인 세션 조회."""
+    """유저의 현재 진행 중인 세션 조회.
+
+    계획된 시간(planned_duration_minutes)을 이미 넘겼는데도 종료되지 않은 세션은
+    프론트 이탈/크래시 등으로 방치된 것으로 간주해 자동으로 만료 처리한다 —
+    그렇지 않으면 해당 유저는 새 집중 세션을 영원히 시작할 수 없게 된다 (#38).
+    """
     result = await db.execute(
         select(FocusSession).where(
             FocusSession.user_id == user_id,
             FocusSession.status == "active",
         ).order_by(desc(FocusSession.started_at)).limit(1)
     )
-    return result.scalar_one_or_none()
+    session = result.scalar_one_or_none()
+    if session is None:
+        return None
+
+    elapsed = datetime.now(timezone.utc) - session.started_at
+    if elapsed > timedelta(minutes=session.planned_duration_minutes):
+        session.status = "expired"
+        session.ended_at = datetime.now(timezone.utc)
+        await db.flush()
+        return None
+
+    return session
 
 
 async def end_focus_session(db: AsyncSession, session: FocusSession) -> FocusSession:
