@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.api.endpoints import briefing, integrations, notifications, streams
 from app.ingress.discord_gateway import start_gateway, stop_gateway
 from app.ingress.slack_webhook import router as slack_router
-from app.core.scheduler import run_gc_scheduler
+from app.core.scheduler import run_gc_scheduler, run_retry_scheduler
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.user import User
@@ -42,11 +42,15 @@ async def lifespan(app: FastAPI):
 
     # 3. 벡터 DB 가비지 컬렉터 스케줄러 (태스크 스폰)
     gc_task = asyncio.create_task(run_gc_scheduler(interval_hours=24))
-    
+
+    # 4. 실패한 raw_event 재처리 스케줄러 (태스크 스폰) (#13)
+    retry_task = asyncio.create_task(run_retry_scheduler(interval_minutes=10))
+
     yield
-    
-    # 3. 우아한 종료(Graceful Shutdown)
+
+    # 5. 우아한 종료(Graceful Shutdown)
     gc_task.cancel()
+    retry_task.cancel()
     await stop_gateway(discord_task)
 
 

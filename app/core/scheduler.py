@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 from app.pipelines.memory_gc_graph import run_gc_pipeline
+from app.pipelines.retry import retry_failed_raw_events
 
 async def run_gc_scheduler(interval_hours: int = 24):
     """
@@ -41,4 +42,36 @@ async def run_gc_scheduler(interval_hours: int = 24):
             await asyncio.sleep(interval_seconds)
         except asyncio.CancelledError:
             print("🛑 백그라운드 GC 스케줄러가 종료 신호를 받아 대기를 중단합니다.")
+            break
+
+
+async def run_retry_scheduler(interval_minutes: int = 10):
+    """백그라운드에서 일정 주기마다 실패한 raw_event를 재처리하는 태스크 (#13).
+
+    파이프라인 처리 실패(LLM 타임아웃/장애 등)로 조용히 유실되던 알림을,
+    Redis 메시지 락(60초 TTL)이 충분히 해제된 뒤 주기적으로 재시도한다.
+    FastAPI Lifespan을 통해 관리됩니다.
+    """
+    print(f"🔄 백그라운드 재시도 스케줄러가 데몬으로 구동되었습니다. (주기: 매 {interval_minutes}분)")
+
+    await asyncio.sleep(60)
+
+    interval_seconds = interval_minutes * 60
+
+    while True:
+        try:
+            print(f"♻️ [Auto Retry] {datetime.now()} - 실패한 raw_event 재처리를 시작합니다...")
+            retried_count = await retry_failed_raw_events()
+            print(f"✅ [Auto Retry 완료] 재처리 시도: {retried_count}건")
+
+        except asyncio.CancelledError:
+            print("🛑 백그라운드 재시도 스케줄러가 취소(종료)되었습니다.")
+            break
+        except Exception as e:
+            print(f"❌ [Auto Retry 실패] 재처리 수행 중 에러 발생: {e}")
+
+        try:
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            print("🛑 백그라운드 재시도 스케줄러가 종료 신호를 받아 대기를 중단합니다.")
             break

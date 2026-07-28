@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
@@ -28,6 +28,7 @@ class RawEvent(Base):
     status = Column(String, nullable=False, default="pending", server_default="pending")
     error_message = Column(Text, nullable=True)
     processed_at = Column(DateTime(timezone=True), nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0, server_default="0")
 
     integration = relationship("IntegrationAccount", backref="raw_events")
     notifications = relationship("Notification", back_populates="raw_event")
