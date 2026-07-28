@@ -3,10 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.raw_event import RawEvent
+
+_UNIQUE_EVENT_COLUMNS = ["provider", "integration_id", "provider_event_id"]
 
 
 async def save_raw_event(
@@ -17,7 +20,31 @@ async def save_raw_event(
     event_type: str,
     payload: dict,
 ) -> RawEvent:
-    """원본 이벤트를 저장하되, 동일 provider_event_id는 재사용한다."""
+    """원본 이벤트를 저장하되, 동일 provider_event_id는 재사용한다.
+
+    (provider, integration_id, provider_event_id) 유니크 인덱스를 대상으로
+    INSERT ... ON CONFLICT DO NOTHING RETURNING을 사용해 원자적으로 처리한다 —
+    이전의 SELECT-then-INSERT 방식은 두 요청이 거의 동시에 들어오면 TOCTOU
+    레이스로 중복 row를 만들 수 있었다 (#14).
+    """
+    stmt = (
+        pg_insert(RawEvent)
+        .values(
+            provider=provider,
+            integration_id=integration_id,
+            provider_event_id=provider_event_id,
+            event_type=event_type,
+            payload=payload,
+        )
+        .on_conflict_do_nothing(index_elements=_UNIQUE_EVENT_COLUMNS)
+        .returning(RawEvent)
+    )
+    result = await db.execute(stmt)
+    raw_event = result.scalar_one_or_none()
+    if raw_event is not None:
+        return raw_event
+
+    # 동시 삽입 레이스에서 진 경우 — 상대가 이미 저장한 행을 그대로 재사용
     existing = await db.execute(
         select(RawEvent).where(
             RawEvent.provider == provider,
@@ -25,20 +52,7 @@ async def save_raw_event(
             RawEvent.provider_event_id == provider_event_id,
         )
     )
-    raw_event = existing.scalar_one_or_none()
-    if raw_event is not None:
-        return raw_event
-
-    raw_event = RawEvent(
-        provider=provider,
-        integration_id=integration_id,
-        provider_event_id=provider_event_id,
-        event_type=event_type,
-        payload=payload,
-    )
-    db.add(raw_event)
-    await db.flush()
-    return raw_event
+    return existing.scalar_one()
 
 
 async def mark_raw_event_status(
