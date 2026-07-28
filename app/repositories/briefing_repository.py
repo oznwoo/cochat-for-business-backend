@@ -73,6 +73,9 @@ async def end_focus_session(db: AsyncSession, session: FocusSession) -> FocusSes
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 
+PRIORITY_RANK = {"Emergency": 0, "High": 1, "Normal": 2, "Low": 3}
+
+
 async def get_notifications_for_session(
     db: AsyncSession,
     session: FocusSession,
@@ -80,23 +83,18 @@ async def get_notifications_for_session(
     """세션 시작~종료 사이 수신된 알림 조회. 우선순위 높은 순 정렬."""
     ended_at = session.ended_at or datetime.now(timezone.utc)
 
-    priority_order = {
-        "high": 0,
-        "medium": 1,
-        "low": 2,
-        None: 3,
-    }
-
     result = await db.execute(
-        select(Notification).where(
+        select(Notification)
+        .options(selectinload(Notification.integration))
+        .where(
             Notification.occurred_at >= session.started_at,
             Notification.occurred_at <= ended_at,
         ).order_by(Notification.occurred_at.asc())
     )
     notifications = list(result.scalars().all())
 
-    # 우선순위 → 발생시각 순 정렬
-    notifications.sort(key=lambda n: (priority_order.get(n.priority, 3), n.occurred_at))
+    # 우선순위(Emergency > High > Normal > Low) → 발생시각 순 정렬
+    notifications.sort(key=lambda n: (PRIORITY_RANK.get(n.priority, 4), n.occurred_at))
     return notifications
 
 
@@ -107,8 +105,9 @@ async def save_briefing(
     session_id: int,
     content: str,
     notification_ids: list[int],
+    action_items: list[str] | None = None,
 ) -> Briefing:
-    briefing = Briefing(session_id=session_id, content=content)
+    briefing = Briefing(session_id=session_id, content=content, action_items=action_items or [])
     db.add(briefing)
     await db.flush()
 
@@ -125,7 +124,7 @@ async def get_latest_briefing(db: AsyncSession, user_id: int) -> Briefing | None
         select(Briefing)
         .join(FocusSession, Briefing.session_id == FocusSession.id)
         .where(FocusSession.user_id == user_id)
-        .options(selectinload(Briefing.notifications))
+        .options(selectinload(Briefing.notifications).selectinload(Notification.integration))
         .order_by(desc(Briefing.generated_at))
         .limit(1)
     )
@@ -136,6 +135,6 @@ async def get_briefing_by_id(db: AsyncSession, briefing_id: int) -> Briefing | N
     result = await db.execute(
         select(Briefing)
         .where(Briefing.id == briefing_id)
-        .options(selectinload(Briefing.notifications))
+        .options(selectinload(Briefing.notifications).selectinload(Notification.integration))
     )
     return result.scalar_one_or_none()

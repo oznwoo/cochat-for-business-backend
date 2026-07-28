@@ -16,23 +16,29 @@ from app.repositories.briefing_repository import (
     get_notifications_for_session,
     save_briefing,
 )
+from app.repositories.notification_repository import serialize_notification
 
 router = APIRouter(tags=["briefing"])
 
+_PRIORITY_TO_COUNT_KEY = {
+    "Emergency": "critical_count",
+    "High": "high_count",
+    "Normal": "medium_count",
+    "Low": "low_count",
+}
+
 
 def _serialize_notification(n) -> dict:
-    return {
-        "id": n.id,
-        "title": n.title,
-        "sender_name": n.sender_name,
-        "channel_name": n.channel_name,
-        "source_type": n.source_type,
-        "priority": n.priority,
-        "original_text": n.original_text,
-        "occurred_at": n.occurred_at,
-        "source_url": n.source_url,
-        "is_direct_target": n.is_direct_target,
-    }
+    return serialize_notification(n, provider=n.integration.provider if n.integration else None)
+
+
+def _priority_counts(notifications) -> dict:
+    counts = {"critical_count": 0, "high_count": 0, "medium_count": 0, "low_count": 0}
+    for n in notifications:
+        key = _PRIORITY_TO_COUNT_KEY.get(n.priority)
+        if key:
+            counts[key] += 1
+    return counts
 
 
 # ── Focus Session ─────────────────────────────────────────────────────────────
@@ -122,12 +128,13 @@ async def create_briefing(
             session = await end_focus_session(db, session)
 
         notifications = await get_notifications_for_session(db, session)
-        content = await generate_briefing(notifications)
+        result = await generate_briefing(notifications)
 
         briefing = await save_briefing(
             db=db,
             session_id=session.id,
-            content=content,
+            content=result.content,
+            action_items=result.action_items,
             notification_ids=[n.id for n in notifications],
         )
 
@@ -135,8 +142,11 @@ async def create_briefing(
         "briefing_id": briefing.id,
         "session_id": briefing.session_id,
         "content": briefing.content,
+        "action_items": briefing.action_items,
         "generated_at": briefing.generated_at,
         "notification_count": len(notifications),
+        "notification_ids": [n.id for n in notifications],
+        **_priority_counts(notifications),
         "notifications": [_serialize_notification(n) for n in notifications],
     }
 
@@ -155,8 +165,11 @@ async def get_latest_briefing_endpoint(
         "briefing_id": briefing.id,
         "session_id": briefing.session_id,
         "content": briefing.content,
+        "action_items": briefing.action_items,
         "generated_at": briefing.generated_at,
         "notification_count": len(briefing.notifications),
+        "notification_ids": [n.id for n in briefing.notifications],
+        **_priority_counts(briefing.notifications),
         "notifications": [_serialize_notification(n) for n in briefing.notifications],
     }
 
@@ -175,7 +188,10 @@ async def get_briefing(
         "briefing_id": briefing.id,
         "session_id": briefing.session_id,
         "content": briefing.content,
+        "action_items": briefing.action_items,
         "generated_at": briefing.generated_at,
         "notification_count": len(briefing.notifications),
+        "notification_ids": [n.id for n in briefing.notifications],
+        **_priority_counts(briefing.notifications),
         "notifications": [_serialize_notification(n) for n in briefing.notifications],
     }
