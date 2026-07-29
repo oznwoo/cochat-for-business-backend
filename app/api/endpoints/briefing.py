@@ -118,6 +118,26 @@ async def finish_focus_session(
     }
 
 
+@router.get("/focus-sessions/active")
+async def get_active_focus_session_endpoint(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """유저의 현재 활성 집중 세션 조회. 방치된 세션은 자동 만료 처리 후 없는 것으로 취급 (#38)."""
+    async with db.begin():
+        session = await get_active_session(db, user_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="진행 중인 집중 세션이 없습니다.")
+
+    return {
+        "session_id": session.id,
+        "started_at": session.started_at,
+        "planned_duration_minutes": session.planned_duration_minutes,
+        "status": session.status,
+    }
+
+
 # ── Briefing ──────────────────────────────────────────────────────────────────
 
 class CreateBriefingRequest(BaseModel):
