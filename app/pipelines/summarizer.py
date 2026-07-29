@@ -1,27 +1,14 @@
 from __future__ import annotations
 
-import asyncio
-
-from google import genai
-from google.genai import types
 from pydantic import BaseModel
 
-from app.core.config import settings
 from app.models.notification import Notification
-
-_client: genai.Client | None = None
+from app.pipelines.shared.llm import get_chat_llm
 
 
 class BriefingResult(BaseModel):
     content: str
     action_items: list[str]
-
-
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-    return _client
 
 
 def _build_prompt(notifications: list[Notification]) -> str:
@@ -48,21 +35,12 @@ def _build_prompt(notifications: list[Notification]) -> str:
 
 
 async def generate_briefing(notifications: list[Notification]) -> BriefingResult:
-    """알림 목록을 받아 Gemini로 브리핑(content + action_items)을 생성."""
+    """알림 목록을 받아 Groq로 브리핑(content + action_items)을 생성."""
     if not notifications:
         return BriefingResult(content="집중 세션 중 수신된 알림이 없습니다.", action_items=[])
 
     prompt = _build_prompt(notifications)
-    client = _get_client()
+    llm = get_chat_llm(temperature=0)
+    structured_llm = llm.with_structured_output(BriefingResult)
 
-    response = await asyncio.to_thread(
-        client.models.generate_content,
-        model=settings.GEMINI_MODEL_NAME,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=BriefingResult,
-        ),
-    )
-
-    return BriefingResult.model_validate_json(response.text)
+    return await structured_llm.ainvoke(prompt)

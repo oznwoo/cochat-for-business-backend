@@ -50,7 +50,7 @@ class ReassessOutput(BaseModel):
 async def analyze_message(state: MessageState) -> dict:
     """1차 긴급도 및 저장 가치 판단 (Gemini Flash 사용)"""
     
-    # 1. 모델과 파서 초기화 (실제 실행을 위해선 GOOGLE_API_KEY 환경변수 세팅 필수)
+    # 1. 모델과 파서 초기화 (실제 실행을 위해선 GROQ_API_KEY 환경변수 세팅 필수)
     llm = get_chat_llm(temperature=0)
     # json_mode는 스키마(필드명)를 프롬프트에 강제하지 않아 모델이 엉뚱한 키를
     # 반환해 파싱이 실패했다 (#31 재발). function_calling(기본값)이 스키마를
