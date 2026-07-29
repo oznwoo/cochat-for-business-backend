@@ -14,6 +14,7 @@ from app.repositories.briefing_repository import (
     get_focus_session,
     get_latest_briefing,
     get_notifications_for_session,
+    list_briefings_for_user,
     save_briefing,
 )
 from app.repositories.notification_repository import serialize_notification
@@ -39,6 +40,20 @@ def _priority_counts(notifications) -> dict:
         if key:
             counts[key] += 1
     return counts
+
+
+def _serialize_briefing(briefing, notifications) -> dict:
+    return {
+        "briefing_id": briefing.id,
+        "session_id": briefing.session_id,
+        "content": briefing.content,
+        "action_items": briefing.action_items,
+        "generated_at": briefing.generated_at,
+        "notification_count": len(notifications),
+        "notification_ids": [n.id for n in notifications],
+        **_priority_counts(notifications),
+        "notifications": [_serialize_notification(n) for n in notifications],
+    }
 
 
 # ── Focus Session ─────────────────────────────────────────────────────────────
@@ -138,16 +153,22 @@ async def create_briefing(
             notification_ids=[n.id for n in notifications],
         )
 
+    return _serialize_briefing(briefing, notifications)
+
+
+@router.get("/briefings")
+async def list_briefings_endpoint(
+    user_id: int,
+    limit: int = 20,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    """유저의 브리핑 전체 목록을 최신순으로 페이지네이션 조회."""
+    briefings, total = await list_briefings_for_user(db, user_id, limit=limit, offset=offset)
+
     return {
-        "briefing_id": briefing.id,
-        "session_id": briefing.session_id,
-        "content": briefing.content,
-        "action_items": briefing.action_items,
-        "generated_at": briefing.generated_at,
-        "notification_count": len(notifications),
-        "notification_ids": [n.id for n in notifications],
-        **_priority_counts(notifications),
-        "notifications": [_serialize_notification(n) for n in notifications],
+        "items": [_serialize_briefing(b, b.notifications) for b in briefings],
+        "total": total,
     }
 
 
@@ -161,17 +182,7 @@ async def get_latest_briefing_endpoint(
     if not briefing:
         raise HTTPException(status_code=404, detail="브리핑이 없습니다.")
 
-    return {
-        "briefing_id": briefing.id,
-        "session_id": briefing.session_id,
-        "content": briefing.content,
-        "action_items": briefing.action_items,
-        "generated_at": briefing.generated_at,
-        "notification_count": len(briefing.notifications),
-        "notification_ids": [n.id for n in briefing.notifications],
-        **_priority_counts(briefing.notifications),
-        "notifications": [_serialize_notification(n) for n in briefing.notifications],
-    }
+    return _serialize_briefing(briefing, briefing.notifications)
 
 
 @router.get("/briefings/{briefing_id}")
@@ -184,14 +195,4 @@ async def get_briefing(
     if not briefing:
         raise HTTPException(status_code=404, detail="브리핑을 찾을 수 없습니다.")
 
-    return {
-        "briefing_id": briefing.id,
-        "session_id": briefing.session_id,
-        "content": briefing.content,
-        "action_items": briefing.action_items,
-        "generated_at": briefing.generated_at,
-        "notification_count": len(briefing.notifications),
-        "notification_ids": [n.id for n in briefing.notifications],
-        **_priority_counts(briefing.notifications),
-        "notifications": [_serialize_notification(n) for n in briefing.notifications],
-    }
+    return _serialize_briefing(briefing, briefing.notifications)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -129,6 +129,33 @@ async def get_latest_briefing(db: AsyncSession, user_id: int) -> Briefing | None
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def list_briefings_for_user(
+    db: AsyncSession,
+    user_id: int,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[Briefing], int]:
+    """유저의 브리핑 전체 목록을 최신순으로 페이지네이션 조회. (briefings, total) 반환."""
+    total_result = await db.execute(
+        select(func.count(Briefing.id))
+        .join(FocusSession, Briefing.session_id == FocusSession.id)
+        .where(FocusSession.user_id == user_id)
+    )
+    total = total_result.scalar_one()
+
+    result = await db.execute(
+        select(Briefing)
+        .join(FocusSession, Briefing.session_id == FocusSession.id)
+        .where(FocusSession.user_id == user_id)
+        .options(selectinload(Briefing.notifications).selectinload(Notification.integration))
+        .order_by(desc(Briefing.generated_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    briefings = list(result.scalars().all())
+    return briefings, total
 
 
 async def get_briefing_by_id(db: AsyncSession, briefing_id: int) -> Briefing | None:
