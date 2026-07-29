@@ -78,7 +78,15 @@ async def run_pipeline_with_memory(event: NotificationEvent) -> Notification | N
     priority = final_state.get("final_urgency")
     score_map = {"Emergency": 1.0, "High": 0.8, "Normal": 0.5, "Low": 0.1}
     priority_score = score_map.get(priority, 0.0)
-    
+
+    is_schedule_related = final_state.get("is_schedule_related", False)
+    if not is_schedule_related:
+        calendar_status = "none"
+    elif priority in ("Emergency", "High"):
+        calendar_status = "prompted"
+    else:
+        calendar_status = "pending"
+
     content_preview = event.original_text[:50] + "..." if len(event.original_text) > 50 else event.original_text
     
     # DB Model 맵핑
@@ -102,7 +110,9 @@ async def run_pipeline_with_memory(event: NotificationEvent) -> Notification | N
         priority=priority,
         priority_score=priority_score,
         summary=final_state.get("storable_summary"),
-        reason=final_state.get("judgment_rationale")
+        reason=final_state.get("judgment_rationale"),
+        is_schedule_related=is_schedule_related,
+        calendar_status=calendar_status
     )
     
     # 7. 처리가 완전히 종료되었음을 마킹 (24시간 동안 재진입 방지)

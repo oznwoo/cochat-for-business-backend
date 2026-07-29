@@ -31,6 +31,10 @@ def serialize_notification(n: Notification, *, provider: str | None) -> dict:
         "source_url": n.source_url,
         "is_direct_target": n.is_direct_target,
         "status": n.status,
+        "is_schedule_related": n.is_schedule_related,
+        "calendar_status": n.calendar_status,
+        "calendar_event_id": n.calendar_event_id,
+        "calendar_event_url": n.calendar_event_url,
         "created_at": n.created_at.isoformat() if n.created_at else None,
     }
 
@@ -80,5 +84,38 @@ async def update_notification_status(
     db: AsyncSession, notification: Notification, status: str
 ) -> Notification:
     notification.status = status
+    await db.flush()
+    return notification
+
+
+async def list_calendar_candidates_for_user(
+    db: AsyncSession, user_id: int
+) -> list[Notification]:
+    """일정 등록 후보(prompted/pending) 알림 목록 조회 — 오프라인 중 놓친 것 + 누적된 pending 확인용."""
+    query = _scoped_to_user(
+        select(Notification)
+        .options(selectinload(Notification.integration))
+        .where(Notification.calendar_status.in_(["pending", "prompted"])),
+        user_id,
+    )
+    result = await db.execute(
+        query.order_by(desc(Notification.occurred_at).nullslast(), desc(Notification.id))
+    )
+    return list(result.scalars().all())
+
+
+async def update_notification_calendar(
+    db: AsyncSession,
+    notification: Notification,
+    *,
+    status: str,
+    event_id: str | None = None,
+    event_url: str | None = None,
+) -> Notification:
+    notification.calendar_status = status
+    if event_id is not None:
+        notification.calendar_event_id = event_id
+    if event_url is not None:
+        notification.calendar_event_url = event_url
     await db.flush()
     return notification

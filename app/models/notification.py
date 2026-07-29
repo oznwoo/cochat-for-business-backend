@@ -39,6 +39,10 @@ class Notification(Base):
     summary = Column(Text, nullable=True)
     reason = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="unread")
+    is_schedule_related = Column(Boolean, nullable=False, default=False)
+    calendar_status = Column(String, nullable=False, default="none")
+    calendar_event_id = Column(String, nullable=True)
+    calendar_event_url = Column(String, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

@@ -28,10 +28,14 @@ class AnalyzeMessageOutput(BaseModel):
     issue_type: Literal["new_issue", "ongoing_update", "resolved", "independent"] = Field(
         description="이 메시지의 맥락 유형. (새 장애발생=new_issue, 기존 장애 진행=ongoing_update, 장애 해결/조치완료=resolved, 단발성/독립적 정보=independent)"
     )
+    # should_store와 동일한 이유(#31)로 bool 대신 문자열 리터럴로 선언.
+    is_schedule_related: Literal["true", "false"] = Field(
+        description="마감일/미팅/약속 등 특정 시각에 처리해야 할 일정으로써 캘린더에 등록할 만한 내용을 포함하는가? true 또는 false 문자열로 응답."
+    )
 
-    @field_validator("should_store", mode="before")
+    @field_validator("should_store", "is_schedule_related", mode="before")
     @classmethod
-    def _normalize_should_store(cls, v):
+    def _normalize_bool_like(cls, v):
         # 모델이 "True"/"False"처럼 대소문자를 섞어 내려주는 경우 Literal 매칭을 위해 정규화
         if isinstance(v, str):
             return v.strip().lower()
@@ -63,6 +67,8 @@ async def analyze_message(state: MessageState) -> dict:
                    "- Low: 단순 인사(안녕하세요), 동의/수긍('네 알겠습니다', '확인했습니다'), 잡담, 스팸 봇 메시지.\n\n"
                    "[이슈 타입 분류 가이드라인]\n"
                    "제공된 스레드 문맥을 보고 이 메시지가 장애나 작업의 '새로운 시작(new_issue)'인지, '진행 중인 상황 공유(ongoing_update)'인지, '최종 해결 및 조치 완료(resolved)'인지 판단하세요. 앞뒤 맥락이 없는 일회성 알림은 'independent' 입니다.\n\n"
+                   "[일정 관련 여부 분류 가이드라인]\n"
+                   "이 메시지가 특정 마감일, 미팅, 약속 등 캘린더에 일정으로 등록할 만한 구체적인 시각/기한을 포함하는지 판단하세요 (is_schedule_related). 단순 정보 공유나 잡담에는 true를 주지 마세요.\n\n"
                    "제공된 메타데이터와 본문을 가장 입체적으로 분석하여 JSON으로 반환하세요."
         ),
         ("user", "### 메타데이터:\n{metadata}\n\n"
@@ -86,7 +92,8 @@ async def analyze_message(state: MessageState) -> dict:
         "judgment_rationale": result.judgment_rationale,
         "should_store": result.should_store == "true",
         "storable_summary": result.storable_summary,
-        "issue_type": result.issue_type
+        "issue_type": result.issue_type,
+        "is_schedule_related": result.is_schedule_related == "true"
     }
 
 async def fast_retrieve_emergency_context(state: MessageState) -> dict:
@@ -305,7 +312,8 @@ async def run_realtime_pipeline(initial_state: dict, config: dict = None) -> dic
         "final_urgency": full_state.get("final_urgency"),
         "judgment_rationale": full_state.get("judgment_rationale"),
         "should_store": full_state.get("should_store"),
-        "storable_summary": full_state.get("storable_summary")
+        "storable_summary": full_state.get("storable_summary"),
+        "is_schedule_related": full_state.get("is_schedule_related")
     }
 
 __all__ = ["realtime_graph", "run_realtime_pipeline"]

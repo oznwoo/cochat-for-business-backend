@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     SLACK_CLIENT_SECRET: str = ""
     SLACK_REDIRECT_URI: str = "https://cochat-for-buisness-backend.onrender.com/api/v1/integrations/slack/callback"
 
+    # Google Calendar
+    GOOGLE_CALENDAR_CLIENT_ID: str = ""
+    GOOGLE_CALENDAR_CLIENT_SECRET: str = ""
+    GOOGLE_CALENDAR_REDIRECT_URI: str = "https://cochat-for-buisness-backend.onrender.com/api/v1/integrations/google-calendar/callback"
+
     class Config:
         env_file = ".env"
 

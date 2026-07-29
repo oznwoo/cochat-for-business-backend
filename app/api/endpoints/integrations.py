@@ -18,6 +18,7 @@ from app.api.deps import get_current_user_id
 from app.core.config import settings
 from app.db.session import get_db
 from app.integrations.discord.client import DiscordRestClient
+from app.integrations.google_calendar.client import GoogleCalendarClient
 from app.integrations.slack.client import SlackClient
 from app.integrations.slack.sync_service import (
     list_accessible_conversations,
@@ -60,6 +61,12 @@ _SLACK_BOT_SCOPES = ",".join([
     "channels:history",
     "groups:history",
     "im:history",
+])
+
+_GOOGLE_CALENDAR_SCOPES = " ".join([
+    "https://www.googleapis.com/auth/calendar.events",
+    "openid",
+    "email",
 ])
 
 
@@ -561,5 +568,96 @@ async def discord_oauth_callback(
 
     return RedirectResponse(
         url=f"{settings.FRONTEND_URL}/setup?provider=discord&status=connected",
+        status_code=302,
+    )
+
+
+@router.get("/integrations/google-calendar/oauth-url")
+def get_google_calendar_oauth_url(
+    current_user_id: int = Depends(get_current_user_id),
+):
+    """Return the Google Calendar OAuth authorize URL for the current application user."""
+    state = _build_oauth_state("google_calendar", current_user_id, settings.GOOGLE_CALENDAR_CLIENT_SECRET)
+    params = urlencode({
+        "client_id": settings.GOOGLE_CALENDAR_CLIENT_ID,
+        "redirect_uri": settings.GOOGLE_CALENDAR_REDIRECT_URI,
+        "response_type": "code",
+        "scope": _GOOGLE_CALENDAR_SCOPES,
+        # refresh_token을 매번 확실히 받기 위해 offline 접근 + 동의 화면 강제 표시 필요
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+    })
+    return {
+        "url": f"https://accounts.google.com/o/oauth2/v2/auth?{params}",
+        "state": state,
+        "user_id": current_user_id,
+    }
+
+
+@router.get("/integrations/google-calendar/callback")
+async def google_calendar_oauth_callback(
+    code: str,
+    state: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Exchange the Google Calendar OAuth code and persist a user-scoped integration."""
+    state_payload = _parse_oauth_state(state, "google_calendar", settings.GOOGLE_CALENDAR_CLIENT_SECRET)
+    app_user_id: int = int(state_payload["app_user_id"])
+
+    client = GoogleCalendarClient()
+
+    try:
+        token_data = await client.exchange_code(
+            code=code,
+            redirect_uri=settings.GOOGLE_CALENDAR_REDIRECT_URI,
+            client_id=settings.GOOGLE_CALENDAR_CLIENT_ID,
+            client_secret=settings.GOOGLE_CALENDAR_CLIENT_SECRET,
+        )
+    except Exception as exc:  # pragma: no cover - delegated REST failure
+        raise HTTPException(status_code=400, detail="Google Calendar authorization code exchange failed.") from exc
+
+    access_token: str = token_data["access_token"]
+    refresh_token: str | None = token_data.get("refresh_token")
+    expires_in: int | None = token_data.get("expires_in")
+    expires_at: datetime | None = (
+        datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        if expires_in
+        else None
+    )
+
+    if not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Google Calendar refresh token missing — revoke prior access at "
+            "https://myaccount.google.com/permissions and retry.",
+        )
+
+    try:
+        userinfo = await client.get_userinfo(access_token)
+    except Exception as exc:  # pragma: no cover - delegated REST failure
+        raise HTTPException(status_code=400, detail="Failed to fetch Google account info.") from exc
+
+    account_identifier: str = userinfo.get("sub") or userinfo.get("email", "")
+    account_name: str = userinfo.get("email", account_identifier)
+
+    async with db.begin():
+        integration = await get_or_create_user_integration(
+            db=db,
+            user_id=app_user_id,
+            provider="google_calendar",
+            account_identifier=account_identifier,
+            account_name=account_name,
+        )
+        await upsert_token(
+            db=db,
+            integration_id=integration.id,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
+        )
+
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_URL}/setup?provider=google_calendar&status=connected",
         status_code=302,
     )
