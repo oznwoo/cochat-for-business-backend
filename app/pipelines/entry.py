@@ -112,7 +112,9 @@ async def run_pipeline_with_memory(event: NotificationEvent) -> Notification | N
         summary=final_state.get("storable_summary"),
         reason=final_state.get("judgment_rationale"),
         is_schedule_related=is_schedule_related,
-        calendar_status=calendar_status
+        calendar_status=calendar_status,
+        suggested_start_time=final_state.get("suggested_start_time"),
+        suggested_duration_minutes=final_state.get("suggested_duration_minutes"),
     )
     
     # 7. 처리가 완전히 종료되었음을 마킹 (24시간 동안 재진입 방지)

@@ -35,6 +35,8 @@ def serialize_notification(n: Notification, *, provider: str | None) -> dict:
         "calendar_status": n.calendar_status,
         "calendar_event_id": n.calendar_event_id,
         "calendar_event_url": n.calendar_event_url,
+        "suggested_start_time": n.suggested_start_time.isoformat() if n.suggested_start_time else None,
+        "suggested_duration_minutes": n.suggested_duration_minutes,
         "created_at": n.created_at.isoformat() if n.created_at else None,
     }
 

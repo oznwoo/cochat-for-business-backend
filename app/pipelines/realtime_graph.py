@@ -1,5 +1,6 @@
 from langgraph.graph import StateGraph, END
 
+from datetime import datetime, time, timedelta
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,6 +13,19 @@ from app.pipelines.shared.retriever_utils import asearch_hybrid_rrf, search_cros
 # ==============================================================================
 # Node Functions
 # ==============================================================================
+
+_WEEKDAY_KO = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+
+
+def _format_reference_datetime(occurred_at_iso: str | None) -> str:
+    """상대 시각(내일/다음 주 화요일 등) 계산 기준점을 LLM 프롬프트용 문자열로 변환."""
+    if not occurred_at_iso:
+        return "알 수 없음"
+    try:
+        dt = datetime.fromisoformat(occurred_at_iso.replace("Z", "+00:00"))
+    except ValueError:
+        return "알 수 없음"
+    return f"{dt.strftime('%Y-%m-%d %H:%M')} ({_WEEKDAY_KO[dt.weekday()]})"
 
 class AnalyzeMessageOutput(BaseModel):
     """LLM이 반드시 준수해야 하는 JSON 출력 스키마"""
@@ -31,6 +45,26 @@ class AnalyzeMessageOutput(BaseModel):
     # should_store와 동일한 이유(#31)로 bool 대신 문자열 리터럴로 선언.
     is_schedule_related: Literal["true", "false"] = Field(
         description="마감일/미팅/약속 등 특정 시각에 처리해야 할 일정으로써 캘린더에 등록할 만한 내용을 포함하는가? true 또는 false 문자열로 응답."
+    )
+    # #44: is_schedule_related가 true일 때 실제 일정 시각을 구조화 추출. 절대 ISO
+    # 문자열을 LLM이 직접 계산하게 하면 날짜 연산 오류가 잦아, "기준 시각 대비 며칠
+    # 뒤"라는 상대적인 정수 오프셋만 뽑고 절대 날짜 계산은 서버(analyze_message)에서
+    # 수행한다.
+    schedule_day_offset: int | None = Field(
+        default=None,
+        description="일정 날짜를 특정할 수 있는 경우, 기준 시각(오늘) 대비 며칠 뒤인지 (오늘=0, 내일=1, 모레=2). 요일로 표현된 경우(예: 다음 주 화요일) 기준 시각의 요일을 참고해 정확한 일수로 환산. 불명확하면 null.",
+    )
+    schedule_hour: int | None = Field(
+        default=None, ge=0, le=23,
+        description="일정 시각을 특정할 수 있는 경우 0-23 시(hour). '오후 2시'는 14로 환산. 불명확하면 null.",
+    )
+    schedule_minute: int | None = Field(
+        default=None, ge=0, le=59,
+        description="일정의 분(minute), 0-59. 명시 안 됐으면 0. schedule_hour가 null이면 이 값도 null.",
+    )
+    schedule_duration_minutes: int | None = Field(
+        default=None, gt=0,
+        description="시간 범위가 명시된 경우(예: '2시~2시 30분') 그 길이(분). 아니면 null.",
     )
 
     @field_validator("should_store", "is_schedule_related", mode="before")
@@ -69,22 +103,51 @@ async def analyze_message(state: MessageState) -> dict:
                    "제공된 스레드 문맥을 보고 이 메시지가 장애나 작업의 '새로운 시작(new_issue)'인지, '진행 중인 상황 공유(ongoing_update)'인지, '최종 해결 및 조치 완료(resolved)'인지 판단하세요. 앞뒤 맥락이 없는 일회성 알림은 'independent' 입니다.\n\n"
                    "[일정 관련 여부 분류 가이드라인]\n"
                    "이 메시지가 특정 마감일, 미팅, 약속 등 캘린더에 일정으로 등록할 만한 구체적인 시각/기한을 포함하는지 판단하세요 (is_schedule_related). 단순 정보 공유나 잡담에는 true를 주지 마세요.\n\n"
+                   "[일정 시각 추출 가이드라인]\n"
+                   "is_schedule_related가 true인 경우, 메시지에 언급된 시각을 schedule_day_offset(기준 시각 대비 며칠 뒤, 오늘=0/내일=1/모레=2), schedule_hour/schedule_minute(0-23시/0-59분), schedule_duration_minutes(범위가 명시된 경우의 길이(분))로 구조화해 추출하세요. "
+                   "'다음 주 화요일'처럼 요일로 표현된 경우 기준 시각의 요일을 참고해 정확한 일수로 환산하세요. 값을 특정할 수 없으면 절대 추측하지 말고 해당 필드를 null로 응답하세요.\n\n"
                    "제공된 메타데이터와 본문을 가장 입체적으로 분석하여 JSON으로 반환하세요."
         ),
         ("user", "### 메타데이터:\n{metadata}\n\n"
+                 "### 기준 시각 (메시지 발신 시각, 상대 날짜/요일 계산 기준):\n{reference_datetime}\n\n"
                  "### 최근 스레드 문맥 (단기 기억):\n{history}\n\n"
                  "### 현재 메시지 본문:\n{content}")
     ])
-    
+
     # 3. 모델 체인지업(Invocation)
     chain = prompt | structured_llm
-    
+
+    metadata = state.get("metadata", {})
+    reference_datetime = _format_reference_datetime(metadata.get("occurred_at"))
+
     result = await chain.ainvoke({
-        "metadata": state.get("metadata", {}),
+        "metadata": metadata,
+        "reference_datetime": reference_datetime,
         "history": state.get("conversation_history", []),
         "content": state.get("content", "")
     })
-    
+
+    # 3.5. 상대 오프셋(schedule_day_offset) + 기준 시각(occurred_at)으로 절대 시각 계산.
+    # 날짜 연산은 LLM이 아닌 서버에서 수행 (프롬프트 가이드라인 참고).
+    suggested_start_time = None
+    if (
+        result.is_schedule_related == "true"
+        and result.schedule_day_offset is not None
+        and result.schedule_hour is not None
+    ):
+        occurred_at_iso = metadata.get("occurred_at")
+        if occurred_at_iso:
+            try:
+                base_dt = datetime.fromisoformat(occurred_at_iso.replace("Z", "+00:00"))
+                target_date = base_dt.date() + timedelta(days=result.schedule_day_offset)
+                suggested_start_time = datetime.combine(
+                    target_date,
+                    time(hour=result.schedule_hour, minute=result.schedule_minute or 0),
+                    tzinfo=base_dt.tzinfo,
+                )
+            except ValueError:
+                suggested_start_time = None
+
     # 4. 분석 결과 반환
     return {
         "initial_urgency": result.initial_urgency,
@@ -93,7 +156,9 @@ async def analyze_message(state: MessageState) -> dict:
         "should_store": result.should_store == "true",
         "storable_summary": result.storable_summary,
         "issue_type": result.issue_type,
-        "is_schedule_related": result.is_schedule_related == "true"
+        "is_schedule_related": result.is_schedule_related == "true",
+        "suggested_start_time": suggested_start_time,
+        "suggested_duration_minutes": result.schedule_duration_minutes,
     }
 
 async def fast_retrieve_emergency_context(state: MessageState) -> dict:
@@ -313,7 +378,9 @@ async def run_realtime_pipeline(initial_state: dict, config: dict = None) -> dic
         "judgment_rationale": full_state.get("judgment_rationale"),
         "should_store": full_state.get("should_store"),
         "storable_summary": full_state.get("storable_summary"),
-        "is_schedule_related": full_state.get("is_schedule_related")
+        "is_schedule_related": full_state.get("is_schedule_related"),
+        "suggested_start_time": full_state.get("suggested_start_time"),
+        "suggested_duration_minutes": full_state.get("suggested_duration_minutes"),
     }
 
 __all__ = ["realtime_graph", "run_realtime_pipeline"]

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import TypedDict, Optional, List, Dict, Any
 
 class MessageMetadata(TypedDict, total=False):
@@ -47,6 +48,8 @@ class MessageState(TypedDict):
     storable_summary: str            # 저장에 적합하게 가공된 내용 요약
     issue_type: str                  # "new_issue", "ongoing_update", "resolved", "independent"
     is_schedule_related: bool        # 마감/미팅/약속 등 캘린더 등록 후보인지 여부
+    suggested_start_time: Optional[datetime]   # LLM이 추출한 일정 추정 시작 시각 (참고용, #44)
+    suggested_duration_minutes: Optional[int]  # LLM이 추출한 일정 추정 소요 시간(분)
 
 
 class FeedbackState(TypedDict):

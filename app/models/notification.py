@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.models.base import Base
@@ -43,6 +43,8 @@ class Notification(Base):
     calendar_status = Column(String, nullable=False, default="none")
     calendar_event_id = Column(String, nullable=True)
     calendar_event_url = Column(String, nullable=True)
+    suggested_start_time = Column(DateTime(timezone=True), nullable=True)
+    suggested_duration_minutes = Column(Integer, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
