@@ -1,5 +1,6 @@
 from langgraph.graph import StateGraph, END
 
+import logging
 from datetime import datetime, time, timedelta
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
@@ -9,6 +10,8 @@ from app.pipelines.shared.llm import get_chat_llm
 from app.core.config import settings
 from app.pipelines.state import MessageState
 from app.pipelines.shared.retriever_utils import asearch_hybrid_rrf, search_cross_encoder_rerank
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # Node Functions
@@ -136,13 +139,31 @@ async def analyze_message(state: MessageState) -> dict:
 
     metadata = state.get("metadata", {})
     reference_datetime = _format_reference_datetime(metadata.get("occurred_at"))
-
-    result = await chain.ainvoke({
+    invoke_args = {
         "metadata": metadata,
         "reference_datetime": reference_datetime,
         "history": state.get("conversation_history", []),
         "content": state.get("content", "")
-    })
+    }
+
+    # Groq(Llama)가 드물게 judgment_rationale 등을 생성하다 반복 루프에 빠져 함수
+    # 호출 JSON을 완성 못 하고 400을 내는 경우가 있다 (#48). temperature=0이라
+    # 재시도해도 같은 루프가 재현될 수 있지만, Groq 응답이 완전히 결정적이지는
+    # 않아 1회 재시도로 상당수는 완화됨 — 그래도 실패하면 예외를 그대로 올려서
+    # 기존 raw_event 재처리 스케줄러(#13)가 이후 사이클에 다시 시도하게 둔다.
+    result = None
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            result = await chain.ainvoke(invoke_args)
+            break
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "analyze_message LLM 호출 실패 (시도 %d/2): %s", attempt + 1, exc
+            )
+    if result is None:
+        raise last_exc
 
     # 3.5. 문자열로 온 일정 필드를 정수로 파싱 (#47).
     schedule_day_offset = _parse_optional_int(result.schedule_day_offset)
