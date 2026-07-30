@@ -103,15 +103,8 @@ class ReassessOutput(BaseModel):
 
 async def analyze_message(state: MessageState) -> dict:
     """1차 긴급도 및 저장 가치 판단 (Gemini Flash 사용)"""
-    
-    # 1. 모델과 파서 초기화 (실제 실행을 위해선 GROQ_API_KEY 환경변수 세팅 필수)
-    llm = get_chat_llm(temperature=0)
-    # json_mode는 스키마(필드명)를 프롬프트에 강제하지 않아 모델이 엉뚱한 키를
-    # 반환해 파싱이 실패했다 (#31 재발). function_calling(기본값)이 스키마를
-    # 정확히 전달하므로 되돌리고, 타입 문제는 스키마 쪽(should_store)에서 해결함.
-    structured_llm = llm.with_structured_output(AnalyzeMessageOutput)
 
-    # 2. 시스템 프롬프트 설계
+    # 1. 시스템 프롬프트 설계
     prompt = ChatPromptTemplate.from_messages([
         ("system", "당신은 업무용 메신저(Slack/Discord) 환경의 초고속 알람 필터링 비서입니다.\n\n"
                    "[응급도 분류 가이드라인]\n"
@@ -134,9 +127,6 @@ async def analyze_message(state: MessageState) -> dict:
                  "### 현재 메시지 본문:\n{content}")
     ])
 
-    # 3. 모델 체인지업(Invocation)
-    chain = prompt | structured_llm
-
     metadata = state.get("metadata", {})
     reference_datetime = _format_reference_datetime(metadata.get("occurred_at"))
     invoke_args = {
@@ -146,26 +136,35 @@ async def analyze_message(state: MessageState) -> dict:
         "content": state.get("content", "")
     }
 
-    # Groq(Llama)가 드물게 judgment_rationale 등을 생성하다 반복 루프에 빠져 함수
-    # 호출 JSON을 완성 못 하고 400을 내는 경우가 있다 (#48). temperature=0이라
-    # 재시도해도 같은 루프가 재현될 수 있지만, Groq 응답이 완전히 결정적이지는
-    # 않아 1회 재시도로 상당수는 완화됨 — 그래도 실패하면 예외를 그대로 올려서
-    # 기존 raw_event 재처리 스케줄러(#13)가 이후 사이클에 다시 시도하게 둔다.
+    # 2. Groq(Llama)가 드물게 judgment_rationale 등을 생성하다 반복 루프에 빠져 함수
+    # 호출 JSON을 완성 못 하고 400을 내는 경우가 있다 (#48). temperature=0으로
+    # 재시도하면 같은 입력엔 완전히 결정적으로 동일한 루프가 재현되는 것을 실제
+    # 프로덕션에서 확인했다 — 그래서 재시도는 temperature를 올려 다른 생성 경로를
+    # 타게 한다. 그래도 실패하면 예외를 그대로 올려서 기존 raw_event 재처리
+    # 스케줄러(#13)가 이후 사이클에 다시 시도하게 둔다.
     result = None
     last_exc: Exception | None = None
-    for attempt in range(2):
+    for attempt, temperature in enumerate((0, 0.4)):
+        # json_mode는 스키마(필드명)를 프롬프트에 강제하지 않아 모델이 엉뚱한 키를
+        # 반환해 파싱이 실패했다 (#31 재발). function_calling(기본값)이 스키마를
+        # 정확히 전달하므로 되돌리고, 타입 문제는 스키마 쪽(should_store)에서 해결함.
+        structured_llm = get_chat_llm(temperature=temperature).with_structured_output(
+            AnalyzeMessageOutput
+        )
+        chain = prompt | structured_llm
         try:
             result = await chain.ainvoke(invoke_args)
             break
         except Exception as exc:
             last_exc = exc
             logger.warning(
-                "analyze_message LLM 호출 실패 (시도 %d/2): %s", attempt + 1, exc
+                "analyze_message LLM 호출 실패 (시도 %d/2, temperature=%s): %s",
+                attempt + 1, temperature, exc,
             )
     if result is None:
         raise last_exc
 
-    # 3.5. 문자열로 온 일정 필드를 정수로 파싱 (#47).
+    # 3. 문자열로 온 일정 필드를 정수로 파싱 (#47).
     schedule_day_offset = _parse_optional_int(result.schedule_day_offset)
     schedule_hour = _parse_optional_int(result.schedule_hour)
     schedule_minute = _parse_optional_int(result.schedule_minute)
