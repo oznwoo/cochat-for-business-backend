@@ -27,6 +27,19 @@ def _format_reference_datetime(occurred_at_iso: str | None) -> str:
         return "알 수 없음"
     return f"{dt.strftime('%Y-%m-%d %H:%M')} ({_WEEKDAY_KO[dt.weekday()]})"
 
+
+def _parse_optional_int(value: str | None) -> int | None:
+    """#47: Groq가 정수/null이어야 할 값도 문자열로 채우는 경향에 맞춰 안전하게 정수로 변환."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s or s.lower() in ("null", "none"):
+        return None
+    try:
+        return int(float(s))
+    except ValueError:
+        return None
+
 class AnalyzeMessageOutput(BaseModel):
     """LLM이 반드시 준수해야 하는 JSON 출력 스키마"""
     initial_urgency: Literal["Emergency", "High", "Normal", "Low"] = Field(
@@ -50,21 +63,25 @@ class AnalyzeMessageOutput(BaseModel):
     # 문자열을 LLM이 직접 계산하게 하면 날짜 연산 오류가 잦아, "기준 시각 대비 며칠
     # 뒤"라는 상대적인 정수 오프셋만 뽑고 절대 날짜 계산은 서버(analyze_message)에서
     # 수행한다.
-    schedule_day_offset: int | None = Field(
-        default=None,
-        description="일정 날짜를 특정할 수 있는 경우, 기준 시각(오늘) 대비 며칠 뒤인지 (오늘=0, 내일=1, 모레=2). 요일로 표현된 경우(예: 다음 주 화요일) 기준 시각의 요일을 참고해 정확한 일수로 환산. 불명확하면 null.",
+    # should_store와 동일한 이유(#31, #47)로 int|None 대신 문자열 스키마로 선언.
+    # Groq가 정수/null이어야 할 값도 전부 문자열("15", "null")로 채워서 tool call을
+    # 만드는 경향이 있어, int|None으로 선언하면 Groq 서버 단 스키마 검증에서 400으로
+    # 거부되어 메시지 분석 자체가 죽어버렸다 (#47) — analyze_message에서 정수로 파싱한다.
+    schedule_day_offset: str = Field(
+        default="null",
+        description="일정 날짜를 특정할 수 있는 경우, 기준 시각(오늘) 대비 며칠 뒤인지를 나타내는 정수를 문자열로 응답 (오늘='0', 내일='1', 모레='2'). 요일로 표현된 경우(예: 다음 주 화요일) 기준 시각의 요일을 참고해 정확한 일수로 환산. 불명확하면 반드시 문자열 'null'로 응답.",
     )
-    schedule_hour: int | None = Field(
-        default=None, ge=0, le=23,
-        description="일정 시각을 특정할 수 있는 경우 0-23 시(hour). '오후 2시'는 14로 환산. 불명확하면 null.",
+    schedule_hour: str = Field(
+        default="null",
+        description="일정 시각을 특정할 수 있는 경우 0-23 사이의 시(hour)를 문자열로 응답. '오후 2시'는 '14'로 환산. 불명확하면 반드시 문자열 'null'로 응답.",
     )
-    schedule_minute: int | None = Field(
-        default=None, ge=0, le=59,
-        description="일정의 분(minute), 0-59. 명시 안 됐으면 0. schedule_hour가 null이면 이 값도 null.",
+    schedule_minute: str = Field(
+        default="null",
+        description="일정의 분(minute), 0-59 사이의 정수를 문자열로 응답. 명시 안 됐으면 '0'. schedule_hour가 'null'이면 이 값도 'null'.",
     )
-    schedule_duration_minutes: int | None = Field(
-        default=None, gt=0,
-        description="시간 범위가 명시된 경우(예: '2시~2시 30분') 그 길이(분). 아니면 null.",
+    schedule_duration_minutes: str = Field(
+        default="null",
+        description="시간 범위가 명시된 경우(예: '2시~2시 30분') 그 길이(분)를 문자열로 응답. 아니면 반드시 문자열 'null'로 응답.",
     )
 
     @field_validator("should_store", "is_schedule_related", mode="before")
@@ -105,7 +122,7 @@ async def analyze_message(state: MessageState) -> dict:
                    "이 메시지가 특정 마감일, 미팅, 약속 등 캘린더에 일정으로 등록할 만한 구체적인 시각/기한을 포함하는지 판단하세요 (is_schedule_related). 단순 정보 공유나 잡담에는 true를 주지 마세요.\n\n"
                    "[일정 시각 추출 가이드라인]\n"
                    "is_schedule_related가 true인 경우, 메시지에 언급된 시각을 schedule_day_offset(기준 시각 대비 며칠 뒤, 오늘=0/내일=1/모레=2), schedule_hour/schedule_minute(0-23시/0-59분), schedule_duration_minutes(범위가 명시된 경우의 길이(분))로 구조화해 추출하세요. "
-                   "'다음 주 화요일'처럼 요일로 표현된 경우 기준 시각의 요일을 참고해 정확한 일수로 환산하세요. 값을 특정할 수 없으면 절대 추측하지 말고 해당 필드를 null로 응답하세요.\n\n"
+                   "'다음 주 화요일'처럼 요일로 표현된 경우 기준 시각의 요일을 참고해 정확한 일수로 환산하세요. 이 필드들은 전부 문자열 타입이므로 숫자도 반드시 문자열로 응답하세요(예: 15가 아니라 \"15\"). 값을 특정할 수 없으면 절대 추측하지 말고 해당 필드를 문자열 \"null\"로 응답하세요.\n\n"
                    "제공된 메타데이터와 본문을 가장 입체적으로 분석하여 JSON으로 반환하세요."
         ),
         ("user", "### 메타데이터:\n{metadata}\n\n"
@@ -127,22 +144,28 @@ async def analyze_message(state: MessageState) -> dict:
         "content": state.get("content", "")
     })
 
-    # 3.5. 상대 오프셋(schedule_day_offset) + 기준 시각(occurred_at)으로 절대 시각 계산.
+    # 3.5. 문자열로 온 일정 필드를 정수로 파싱 (#47).
+    schedule_day_offset = _parse_optional_int(result.schedule_day_offset)
+    schedule_hour = _parse_optional_int(result.schedule_hour)
+    schedule_minute = _parse_optional_int(result.schedule_minute)
+    schedule_duration_minutes = _parse_optional_int(result.schedule_duration_minutes)
+
+    # 상대 오프셋(schedule_day_offset) + 기준 시각(occurred_at)으로 절대 시각 계산.
     # 날짜 연산은 LLM이 아닌 서버에서 수행 (프롬프트 가이드라인 참고).
     suggested_start_time = None
     if (
         result.is_schedule_related == "true"
-        and result.schedule_day_offset is not None
-        and result.schedule_hour is not None
+        and schedule_day_offset is not None
+        and schedule_hour is not None
     ):
         occurred_at_iso = metadata.get("occurred_at")
         if occurred_at_iso:
             try:
                 base_dt = datetime.fromisoformat(occurred_at_iso.replace("Z", "+00:00"))
-                target_date = base_dt.date() + timedelta(days=result.schedule_day_offset)
+                target_date = base_dt.date() + timedelta(days=schedule_day_offset)
                 suggested_start_time = datetime.combine(
                     target_date,
-                    time(hour=result.schedule_hour, minute=result.schedule_minute or 0),
+                    time(hour=schedule_hour, minute=schedule_minute or 0),
                     tzinfo=base_dt.tzinfo,
                 )
             except ValueError:
@@ -158,7 +181,7 @@ async def analyze_message(state: MessageState) -> dict:
         "issue_type": result.issue_type,
         "is_schedule_related": result.is_schedule_related == "true",
         "suggested_start_time": suggested_start_time,
-        "suggested_duration_minutes": result.schedule_duration_minutes,
+        "suggested_duration_minutes": schedule_duration_minutes,
     }
 
 async def fast_retrieve_emergency_context(state: MessageState) -> dict:
