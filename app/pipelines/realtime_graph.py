@@ -48,7 +48,10 @@ class AnalyzeMessageOutput(BaseModel):
     initial_urgency: Literal["Emergency", "High", "Normal", "Low"] = Field(
         description="초기 긴급도 파악 결과. 심각한 장애는 Emergency, 직접 멘션/중요 요청은 High, 일반 알림이나 로그는 Normal, 의미없는 잡담/대답은 Low."
     )
-    judgment_rationale: str = Field(description="선택한 긴급도에 대한 상세한 논리적 판단 근거 (Chain of Thought)")
+    # #48: "상세한 CoT"를 요구하면 자유 서술이 길어져 Groq가 반복 생성 루프에
+    # 빠질 표면적이 넓어진다 (실제 프로덕션에서 반복 재현 확인). ReassessOutput의
+    # judgment_rationale과 동일하게 짧게 요구해 그 여지를 줄인다.
+    judgment_rationale: str = Field(description="선택한 긴급도에 대한 판단 근거. 1~2문장으로 간결하게, 절대 길게 늘어놓지 말 것.")
     # Groq(Llama) function_calling은 tool 인자를 서버 단에서 엄격히 타입 검증하는데,
     # 모델이 bool 값을 문자열("True")로 내려주면 그 자리에서 400으로 거부되어 버린다
     # (#31). bool 대신 문자열 스키마로 선언해 모델이 자연스럽게 내는 형식을 그대로
