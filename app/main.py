@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
-from app.api.endpoints import briefing, integrations, notifications, streams
+from app.api.endpoints import briefing, calendar_events, integrations, notifications, streams
 from app.ingress.discord_gateway import start_gateway, stop_gateway
 from app.ingress.slack_webhook import router as slack_router
 from app.core.scheduler import run_gc_scheduler, run_retry_scheduler
@@ -76,6 +76,7 @@ app.include_router(slack_router, prefix="/api/v1")
 app.include_router(streams.router, prefix="/api/v1")
 app.include_router(notifications.router, prefix="/api/v1")
 app.include_router(briefing.router, prefix="/api/v1")
+app.include_router(calendar_events.router, prefix="/api/v1")
 
 
 @app.get("/health")

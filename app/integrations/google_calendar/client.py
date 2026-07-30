@@ -69,3 +69,51 @@ class GoogleCalendarClient:
             )
             response.raise_for_status()
             return response.json()
+
+    async def list_events(
+        self,
+        access_token: str,
+        time_min: str,
+        time_max: str,
+        calendar_id: str = "primary",
+    ) -> list[dict]:
+        """기간별 캘린더 이벤트 목록 조회 (반복 일정은 개별 발생 건으로 펼쳐서 반환)."""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{GOOGLE_CALENDAR_API_BASE}/calendars/{calendar_id}/events",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={
+                    "timeMin": time_min,
+                    "timeMax": time_max,
+                    "singleEvents": "true",
+                    "orderBy": "startTime",
+                },
+            )
+            response.raise_for_status()
+            return response.json().get("items", [])
+
+    async def update_event(
+        self, access_token: str, event_id: str, event: dict, calendar_id: str = "primary"
+    ) -> dict:
+        """캘린더 이벤트 수정 (부분 필드만 전달해도 나머지는 유지되는 PATCH)."""
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(
+                f"{GOOGLE_CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json=event,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def delete_event(
+        self, access_token: str, event_id: str, calendar_id: str = "primary"
+    ) -> None:
+        """캘린더 이벤트 삭제."""
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"{GOOGLE_CALENDAR_API_BASE}/calendars/{calendar_id}/events/{event_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            # 이미 삭제된 이벤트를 재삭제하면 410 Gone — 최종 상태는 동일하므로 성공으로 취급.
+            if response.status_code not in (204, 410):
+                response.raise_for_status()
