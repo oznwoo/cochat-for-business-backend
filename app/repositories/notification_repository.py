@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -37,6 +39,8 @@ def serialize_notification(n: Notification, *, provider: str | None) -> dict:
         "calendar_event_url": n.calendar_event_url,
         "suggested_start_time": n.suggested_start_time.isoformat() if n.suggested_start_time else None,
         "suggested_duration_minutes": n.suggested_duration_minutes,
+        "calendar_event_start_time": n.calendar_event_start_time.isoformat() if n.calendar_event_start_time else None,
+        "calendar_event_end_time": n.calendar_event_end_time.isoformat() if n.calendar_event_end_time else None,
         "created_at": n.created_at.isoformat() if n.created_at else None,
     }
 
@@ -113,11 +117,17 @@ async def update_notification_calendar(
     status: str,
     event_id: str | None = None,
     event_url: str | None = None,
+    event_start_time: datetime | None = None,
+    event_end_time: datetime | None = None,
 ) -> Notification:
     notification.calendar_status = status
     if event_id is not None:
         notification.calendar_event_id = event_id
     if event_url is not None:
         notification.calendar_event_url = event_url
+    if event_start_time is not None:
+        notification.calendar_event_start_time = event_start_time
+    if event_end_time is not None:
+        notification.calendar_event_end_time = event_end_time
     await db.flush()
     return notification

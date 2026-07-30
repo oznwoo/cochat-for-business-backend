@@ -45,6 +45,8 @@ class Notification(Base):
     calendar_event_url = Column(String, nullable=True)
     suggested_start_time = Column(DateTime(timezone=True), nullable=True)
     suggested_duration_minutes = Column(Integer, nullable=True)
+    calendar_event_start_time = Column(DateTime(timezone=True), nullable=True)
+    calendar_event_end_time = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

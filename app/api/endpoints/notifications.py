@@ -206,6 +206,8 @@ async def create_calendar_event(
             status="registered",
             event_id=event.get("id"),
             event_url=event.get("htmlLink"),
+            event_start_time=start_time,
+            event_end_time=end_time,
         )
 
     return _serialize_notification(notification)
