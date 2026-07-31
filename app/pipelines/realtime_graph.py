@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 
 import logging
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 _WEEKDAY_KO = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+# #51: 사용자가 전부 한국 사용자이고 메시지의 시각 표현은 항상 KST 기준이므로,
+# occurred_at(UTC로 저장됨)을 그대로 쓰면 자정 근처 메시지에서 날짜가 하루 밀린다.
+_KST = timezone(timedelta(hours=9))
 
 
 def _format_reference_datetime(occurred_at_iso: str | None) -> str:
@@ -25,7 +28,7 @@ def _format_reference_datetime(occurred_at_iso: str | None) -> str:
     if not occurred_at_iso:
         return "알 수 없음"
     try:
-        dt = datetime.fromisoformat(occurred_at_iso.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(occurred_at_iso.replace("Z", "+00:00")).astimezone(_KST)
     except ValueError:
         return "알 수 없음"
     return f"{dt.strftime('%Y-%m-%d %H:%M')} ({_WEEKDAY_KO[dt.weekday()]})"
@@ -184,12 +187,16 @@ async def analyze_message(state: MessageState) -> dict:
         occurred_at_iso = metadata.get("occurred_at")
         if occurred_at_iso:
             try:
-                base_dt = datetime.fromisoformat(occurred_at_iso.replace("Z", "+00:00"))
+                # #51: LLM이 뽑은 schedule_hour/minute는 메시지 속 한국어 시각 표현
+                # (KST) 기준이므로, 기준 날짜도 KST 달력으로 환산한 뒤 KST tzinfo를
+                # 붙여야 실제 의도한 절대 시각이 나온다. TIMESTAMPTZ 컬럼이라 오프셋
+                # 표기와 무관하게 절대 시각만 정확하면 된다.
+                base_dt = datetime.fromisoformat(occurred_at_iso.replace("Z", "+00:00")).astimezone(_KST)
                 target_date = base_dt.date() + timedelta(days=schedule_day_offset)
                 suggested_start_time = datetime.combine(
                     target_date,
                     time(hour=schedule_hour, minute=schedule_minute or 0),
-                    tzinfo=base_dt.tzinfo,
+                    tzinfo=_KST,
                 )
             except ValueError:
                 suggested_start_time = None
