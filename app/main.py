@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,6 +13,17 @@ from app.core.scheduler import run_gc_scheduler, run_retry_scheduler
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.models.user import User
+
+
+async def _run_migrations() -> None:
+    """앱 시작 시 마이그레이션을 자동 실행합니다 (#50).
+
+    Render 무료 플랜은 Pre-Deploy Command를 지원하지 않아, 배포 후 스키마가
+    코드보다 뒤처지는 사고(#7 UndefinedColumnError)가 있었음. alembic은
+    동기 CLI라 to_thread로 실행하고, 실패 시 앱 시작 자체를 막아 스키마가
+    안 맞는 상태로 서비스가 뜨는 것을 방지한다.
+    """
+    await asyncio.to_thread(subprocess.run, ["alembic", "upgrade", "head"], check=True)
 
 
 async def _ensure_master_user() -> None:
@@ -34,21 +46,24 @@ async def _ensure_master_user() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. 마스터 유저 보장 (FK 위반 방지)
+    # 1. DB 마이그레이션 자동 적용 (#50, Render 무료 플랜은 Pre-Deploy Command 미지원)
+    await _run_migrations()
+
+    # 2. 마스터 유저 보장 (FK 위반 방지)
     await _ensure_master_user()
 
-    # 2. 디스코드 게이트웨이 백그라운드 구동
+    # 3. 디스코드 게이트웨이 백그라운드 구동
     discord_task = await start_gateway()
 
-    # 3. 벡터 DB 가비지 컬렉터 스케줄러 (태스크 스폰)
+    # 4. 벡터 DB 가비지 컬렉터 스케줄러 (태스크 스폰)
     gc_task = asyncio.create_task(run_gc_scheduler(interval_hours=24))
 
-    # 4. 실패한 raw_event 재처리 스케줄러 (태스크 스폰) (#13)
+    # 5. 실패한 raw_event 재처리 스케줄러 (태스크 스폰) (#13)
     retry_task = asyncio.create_task(run_retry_scheduler(interval_minutes=10))
 
     yield
 
-    # 5. 우아한 종료(Graceful Shutdown)
+    # 6. 우아한 종료(Graceful Shutdown)
     gc_task.cancel()
     retry_task.cancel()
     await stop_gateway(discord_task)
