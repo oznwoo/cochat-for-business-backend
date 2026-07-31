@@ -23,7 +23,7 @@
 
 CoChat Backend는 Slack/Discord에 흩어진 업무 알림을 한 곳에 모으고, LangGraph 기반 AI 파이프라인이 긴급도(Emergency/High/Normal/Low)를 판단해 정말 중요한 것만 실시간으로(SSE) 올려주는 서비스 [cochat-for-business-frontend](https://github.com/oh0227/cochat-for-business-frontend)의 API 서버다. 메시지에 일정 정보가 포함돼 있으면 이를 추출해 Google Calendar 등록까지 이어주고, 집중(딥워크) 세션이 끝나면 그동안 쌓인 알림을 AI가 브리핑으로 요약해준다.
 
-2026-03-24 첫 커밋 이후 약 4개월째 165개 커밋으로 개발 중이며, 데모 서비스로 Render에 배포되어 있다.
+2026-03-24 첫 커밋 이후 약 4개월째 175개 커밋으로 개발 중이며, 데모 서비스로 Render에 배포되어 있다.
 
 ---
 
@@ -177,7 +177,7 @@ alembic/versions/                   # DB 마이그레이션
 
 ## 배포
 
-Render의 단일 Docker 인스턴스(512MB)에 `dev` 브랜치 push 시 자동 빌드·배포된다. 스키마 변경이 있는 마이그레이션은 Render의 Pre-Deploy Command로 자동화되어있지 않아, 배포 후 `alembic upgrade head`를 별도로 실행해야 한다 — 다음 개선 대상으로 인지하고 있다.
+Render의 단일 Docker 인스턴스(512MB)에 `main` 브랜치 push 시 자동 빌드·배포된다. Pre-Deploy Command(배포 시 커맨드 자동 실행)는 Render 유료 플랜 전용이라, 앱 부팅 시점에 `alembic upgrade head`를 자동 실행하도록 시도했으나 이미 빠듯한 512MB 예산에서 OOM으로 배포가 아예 죽는 것을 확인하고 되돌렸다. 그래서 스키마 변경이 있는 배포 후에는 `alembic upgrade head`를 로컬이나 Render Shell에서 별도로 실행해야 한다.
 
 ---
 
@@ -193,17 +193,73 @@ pip install -r requirements.txt
 
 docker-compose up -d    # PostgreSQL(pgvector) + Redis 로컬 구동
 
-cp .env.example .env    # GROQ_API_KEY, GOOGLE_API_KEY, Slack/Discord/Google Calendar OAuth 값 등 설정
+cp .env.example .env    # 아래 "외부 서비스 연동 설정" 참고해 값 채우기
 
 alembic upgrade head     # 마이그레이션 적용
 
 uvicorn app.main:app --reload
 ```
 
-Slack/Discord/Google Calendar 연동을 실제로 테스트하려면 각 플랫폼에 앱을 등록하고 `.env`의 `*_CLIENT_ID`/`*_CLIENT_SECRET`/`*_REDIRECT_URI`를 채워야 한다.
+`GROQ_API_KEY`(메시지 분류)와 `GOOGLE_API_KEY`(임베딩)만 있으면 서버 자체는 뜨고 Slack/Discord/Google Calendar 없이도 REST API 구조는 확인할 수 있다. 실제로 메시지를 수신하고 캘린더에 등록하는 전체 흐름을 테스트하려면 아래 세 연동을 각각 설정해야 한다.
+
+---
+
+## 외부 서비스 연동 설정
+
+세 연동 모두 OAuth 콜백을 로컬(`http://localhost:8000/...`)로 등록하면 로컬 서버로, Render 배포 주소로 등록하면 배포 서버로 연동된다. `.env.example`의 `*_REDIRECT_URI` 기본값은 로컬 개발 기준(`http://localhost:8000/...`)이니, 배포 서버에 연결하려면 각 플랫폼 설정 화면과 `.env` 양쪽에서 실제 배포 주소로 바꿔야 한다.
+
+### Slack
+
+1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
+2. **OAuth & Permissions**에서 두 종류 스코프를 모두 추가한다 — 하나만 추가하면 Slack이 이벤트를 아예 안 보낸다.
+   - **Bot Token Scopes**: `app_mentions:read`, `channels:history`, `groups:history`, `im:history`
+   - **User Token Scopes**: `channels:history`, `channels:read`, `groups:history`, `groups:read`, `im:history`, `im:read`, `mpim:history`, `mpim:read`, `users:read`
+3. **OAuth & Permissions** → **Redirect URLs**에 콜백 URL 등록 (`.../api/v1/integrations/slack/callback`)
+4. **Event Subscriptions**를 켜고 Request URL에 `.../api/v1/webhooks/slack` 등록 (앱이 떠 있어야 Slack의 `url_verification` 챌린지를 통과함 — 로컬 테스트는 ngrok 등으로 공인 URL이 필요). Subscribe to bot events에 `app_mention`, `message.channels`, `message.groups`, `message.im` 추가
+5. **Basic Information**에서 `Client ID`/`Client Secret`/`Signing Secret`을 확인해 `.env`에 채운다
+
+```
+SLACK_CLIENT_ID=
+SLACK_CLIENT_SECRET=
+SLACK_SIGNING_SECRET=
+SLACK_REDIRECT_URI=http://localhost:8000/api/v1/integrations/slack/callback
+SLACK_BOT_TOKEN=          # 워크스페이스에 앱 설치 후 발급되는 xoxb- 토큰
+```
+
+### Discord
+
+1. [discord.com/developers/applications](https://discord.com/developers/applications) → **New Application**
+2. **Bot** 탭에서 봇 생성 후, **Privileged Gateway Intents**의 **Message Content Intent**를 반드시 켠다 (꺼져 있으면 메시지 본문을 아예 못 받는다 — `app/ingress/discord_gateway.py`가 이 인텐트로 실시간 게이트웨이에 상시 연결한다)
+3. **OAuth2 → General**에서 Redirect에 콜백 URL 등록 (`.../api/v1/integrations/discord/callback`)
+4. Bot 토큰(**Bot** 탭)과 Client ID/Secret(**OAuth2 → General**)을 `.env`에 채운다. Bot 권한은 서버 메시지 조회에 필요한 `VIEW_CHANNEL + READ_MESSAGE_HISTORY`(permission integer `66560`)로 고정돼 있어 별도 설정은 필요 없다
+
+```
+DISCORD_BOT_TOKEN=
+DISCORD_APPLICATION_ID=
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+DISCORD_REDIRECT_URI=http://localhost:8000/api/v1/integrations/discord/callback
+```
+
+5. 연동 플로우(`GET /api/v1/integrations/discord/oauth-url`)는 유저가 봇을 자신의 서버에 초대하는 "봇 설치" 링크를 발급한다 — 일반 로그인용 OAuth가 아니라 서버별 봇 설치라는 점에 유의
+
+### Google Calendar
+
+1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트 생성 → **APIs & Services → Library**에서 **Google Calendar API** 활성화
+2. **APIs & Services → Credentials**에서 OAuth 2.0 클라이언트 ID(웹 애플리케이션) 생성, 승인된 리디렉션 URI에 콜백 URL 등록 (`.../api/v1/integrations/google-calendar/callback`)
+3. **OAuth consent screen**에서 스코프에 `calendar.events`, `openid`, `email` 추가 (테스트 단계면 테스트 사용자로 본인 계정 등록)
+4. Client ID/Secret을 `.env`에 채운다 — refresh token을 매번 확실히 받기 위해 서버가 `access_type=offline&prompt=consent`로 요청하므로 별도 설정은 불필요
+
+```
+GOOGLE_CALENDAR_CLIENT_ID=
+GOOGLE_CALENDAR_CLIENT_SECRET=
+GOOGLE_CALENDAR_REDIRECT_URI=http://localhost:8000/api/v1/integrations/google-calendar/callback
+```
+
+임베딩용 `GOOGLE_API_KEY`(Gemini)와는 별개의 자격 증명이다 — 하나는 [Google AI Studio](https://aistudio.google.com/) API 키, 하나는 GCP OAuth 클라이언트라 발급 경로가 다르다.
 
 ---
 
 ## 커밋 히스토리
 
-총 165개 커밋. 2026-03-24 첫 커밋 이후 약 4개월째 이어지고 있다.
+총 175개 커밋. 2026-03-24 첫 커밋 이후 약 4개월째 이어지고 있다.
