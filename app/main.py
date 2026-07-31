@@ -1,7 +1,8 @@
 import asyncio
-import subprocess
 from contextlib import asynccontextmanager
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
@@ -15,15 +16,24 @@ from app.db.session import AsyncSessionLocal
 from app.models.user import User
 
 
+def _upgrade_to_head() -> None:
+    command.upgrade(Config("alembic.ini"), "head")
+
+
 async def _run_migrations() -> None:
     """앱 시작 시 마이그레이션을 자동 실행합니다 (#50).
 
     Render 무료 플랜은 Pre-Deploy Command를 지원하지 않아, 배포 후 스키마가
-    코드보다 뒤처지는 사고(#7 UndefinedColumnError)가 있었음. alembic은
-    동기 CLI라 to_thread로 실행하고, 실패 시 앱 시작 자체를 막아 스키마가
-    안 맞는 상태로 서비스가 뜨는 것을 방지한다.
+    코드보다 뒤처지는 사고(#7 UndefinedColumnError)가 있었음. 처음엔
+    subprocess로 `alembic upgrade head`를 실행했는데, 이 앱은 이미 512MB
+    메모리 제약이 빠듯해서 무거운 의존성(langchain/langgraph 등)을 통째로
+    재import하는 자식 프로세스를 띄우면 OOM으로 배포 자체가 크래시했다 (#52).
+    같은 프로세스 안에서 alembic Python API를 직접 호출해 재import 비용을
+    없앰. `command.upgrade`가 내부적으로 asyncio.run()을 호출해 이미 실행
+    중인 이벤트 루프와 충돌하므로 to_thread로 별도 스레드에서 실행한다.
+    실패 시 앱 시작 자체를 막아 스키마가 안 맞는 상태로 뜨는 것을 방지한다.
     """
-    await asyncio.to_thread(subprocess.run, ["alembic", "upgrade", "head"], check=True)
+    await asyncio.to_thread(_upgrade_to_head)
 
 
 async def _ensure_master_user() -> None:
