@@ -29,6 +29,9 @@ def serialize_notification(n: Notification, *, provider: str | None) -> dict:
         "original_text": n.original_text,
         "summary": n.summary,
         "reason": n.reason,
+        # "completed" | "rate_limited" — rate_limited이면 LLM 토큰 소진으로 요약/중요도가
+        # 비어 있으니 프론트에서 "토큰 소진으로 요약 불가" 안내를 표시한다 (#55).
+        "analysis_status": n.analysis_status,
         "occurred_at": n.occurred_at.isoformat() if n.occurred_at else None,
         "source_url": n.source_url,
         "is_direct_target": n.is_direct_target,

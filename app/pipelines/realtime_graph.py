@@ -9,6 +9,7 @@ from app.pipelines.shared.llm import get_chat_llm
 
 from app.core.config import settings
 from app.pipelines.state import MessageState
+from app.pipelines.shared.errors import is_rate_limit_error
 from app.pipelines.shared.retriever_utils import asearch_hybrid_rrf, search_cross_encoder_rerank
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,10 @@ async def analyze_message(state: MessageState) -> dict:
                 "analyze_message LLM 호출 실패 (시도 %d/2, temperature=%s): %s",
                 attempt + 1, temperature, exc,
             )
+            # rate limit(429)은 temperature를 바꿔 재시도해도 동일하게 막히므로
+            # 즉시 중단하고 상위(entry.py)에서 '분석 없이 저장' 경로로 넘긴다 (#55).
+            if is_rate_limit_error(exc):
+                break
     if result is None:
         raise last_exc
 

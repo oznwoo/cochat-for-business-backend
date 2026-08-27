@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.pipelines.shared.errors import is_rate_limit_error
 from app.pipelines.summarizer import generate_briefing
 from app.repositories.briefing_repository import (
     create_focus_session,
@@ -163,7 +164,18 @@ async def create_briefing(
             session = await end_focus_session(db, session)
 
         notifications = await get_notifications_for_session(db, session)
-        result = await generate_briefing(notifications)
+        try:
+            result = await generate_briefing(notifications)
+        except Exception as exc:
+            # Groq 무료 토큰 소진(429)이면 브리핑 row를 만들지 않고 명시적 에러를
+            # 반환해, 프론트에서 "토큰 소진으로 브리핑을 생성할 수 없습니다"를 띄우고
+            # 잠시 후 재시도하게 한다 (#55).
+            if is_rate_limit_error(exc):
+                raise HTTPException(
+                    status_code=503,
+                    detail="LLM 무료 사용량(토큰)이 소진되어 브리핑을 생성할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+                ) from exc
+            raise
 
         briefing = await save_briefing(
             db=db,

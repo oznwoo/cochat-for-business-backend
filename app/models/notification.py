@@ -38,6 +38,9 @@ class Notification(Base):
     priority_score = Column(Float, nullable=True)
     summary = Column(Text, nullable=True)
     reason = Column(Text, nullable=True)
+    # AI 분석 완료 여부. "completed"=정상 분석, "rate_limited"=Groq 무료 토큰
+    # 소진(429)으로 분석을 건너뛰고 원문만 저장 (#55).
+    analysis_status = Column(String, nullable=False, default="completed")
     status = Column(String, nullable=False, default="unread")
     is_schedule_related = Column(Boolean, nullable=False, default=False)
     calendar_status = Column(String, nullable=False, default="none")

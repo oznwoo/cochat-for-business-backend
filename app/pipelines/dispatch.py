@@ -38,6 +38,14 @@ async def process_event_pipeline(event: NotificationEvent, *, raw_event_id: int)
         await _mark_status(raw_event_id, "completed")
         return
 
+    if notification.analysis_status == "rate_limited":
+        # LLM 무료 한도 초과로 분석은 건너뛰었지만 원문은 저장한다 (#55).
+        # raw_event는 completed로 두어 재처리 스케줄러가 무한 재시도하지 않게 한다.
+        logger.warning(
+            "rate limit로 분석 생략된 알림 저장: provider=%s raw_event_id=%s",
+            event.provider, raw_event_id,
+        )
+
     try:
         async with AsyncSessionLocal() as db:
             async with db.begin():
