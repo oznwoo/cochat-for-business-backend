@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = ""
     GEMINI_MODEL_NAME: str = "gemini-3.6-flash"
     GROQ_API_KEY: str = ""
-    GROQ_MODEL_NAME: str = "llama-3.3-70b-versatile"
+    # Groq가 2026-08-16자로 llama-3.3-70b-versatile를 폐기(#54) → 공식 권장 대체 모델로 교체.
+    # Groq도 모델을 예고 후 종료하므로 env var로 즉시 교체 가능하게 관리.
+    GROQ_MODEL_NAME: str = "openai/gpt-oss-120b"
 
     # Slack
     SLACK_BOT_TOKEN: str = ""
